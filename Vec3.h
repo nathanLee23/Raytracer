@@ -1,4 +1,5 @@
 #pragma once
+#include "SFML/Graphics/Color.hpp"
 
 #include <iostream>
 class Vec3 {
@@ -13,6 +14,8 @@ public:
 	double sqrNorm();
 	double norm();
 	Vec3 normalized();
+	Vec3 proj(const Vec3 a); // Projects vector a onto this
+	sf::Color toColor();
 };
 
 

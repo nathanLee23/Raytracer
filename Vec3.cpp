@@ -1,5 +1,9 @@
 #include <iostream>
 #include "Vec3.h"
+#include <algorithm>
+
+using namespace std;
+
 Vec3::Vec3() : x(0.0), y(0.0), z(0.0) {
 }
 
@@ -24,6 +28,12 @@ double Vec3::norm() {
 Vec3 Vec3::normalized() {
 	double n = norm();
 	return Vec3(x / n, y / n, z / n);
+}
+Vec3 Vec3::proj(Vec3 a) {
+	return dot(a) / sqrNorm() * (*this);
+}
+sf::Color Vec3::toColor() {
+	return sf::Color(min(255.0, x), min(255.0, y), min(255.0, z));
 }
 
 

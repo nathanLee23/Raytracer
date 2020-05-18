@@ -1,11 +1,11 @@
 #pragma once
 #include "Vec3.h"
 #include "Ray.h"
+#include "Material.h"
 
 class Obj {
 public:
-	Vec3 albedo = Vec3(255.0);
-	double emission = 0.0;
+	Material material;
 
 	// Returns the t for which r.o+t*r.d intersects the object
 	// Returns a negative number if no intersection exists

@@ -46,6 +46,9 @@ Vec3 operator*(const Vec3 a, double b) {
 Vec3 operator*(double b, const Vec3 a) {
 	return a * b;
 }
+Vec3 operator*(const Vec3 a, const Vec3 b) {
+	return Vec3(a.x*b.x, a.y*b.y, a.z*b.z);
+}
 Vec3 operator/(const Vec3 a, double b) {
 	return a * (1 / b);
 }
@@ -55,6 +58,7 @@ Vec3 operator-(const Vec3 a) {
 Vec3 operator-(const Vec3 a, const Vec3 b) {
 	return a + (-b);
 }
+
 std::ostream& operator<<(std::ostream& os, const Vec3 a) {
 	os << "(" << a.x << ", " << a.y << ", " << a.z << ")";
 	return os;

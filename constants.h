@@ -1,3 +1,3 @@
 #pragma once
 
-#define EPS 1.0e-6
+#define EPS 1.0e-4

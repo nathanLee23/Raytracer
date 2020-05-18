@@ -5,8 +5,7 @@
 #include <algorithm>
 #include "Vec3.h"
 
-Sphere::Sphere(Vec3 c, double r) : c(c), r(r)  {
-	Obj::emission = 9000.0;
+Sphere::Sphere(Vec3 c, double r) : c(c), r(r) {
 }
 
 double Sphere::intersect(Ray ray) {

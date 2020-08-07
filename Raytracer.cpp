@@ -1,16 +1,19 @@
 // Raytracer.cpp : This file contains the 'main' function. Program execution begins and ends there.
 //
 
-#include <SFML/Graphics.hpp>
 #include <iostream>
 #include <fstream>
-#include <chrono>
-#include <ctime>  
 #include <string.h>
-#include <tuple>
 
 #define _USE_MATH_DEFINES
 #include <math.h>
+#include <limits>
+#include <random> // Replace with QMC generators
+
+#include <chrono>
+#include <ctime>  
+
+#include <SFML/Graphics.hpp>
 
 #include "Vec3.h"
 #include "Material.h"
@@ -19,8 +22,6 @@
 #include "Plane.h"
 #include "constants.h"
 #include "Matrix3.h"
-
-#include <random> // Replace with QMC generators
 
 #define WIDTH 1000
 #define HEIGHT 1000
@@ -34,7 +35,7 @@
 Easy
 Implement AABB
 Try Vec4
-Have raytracing use Inf
+Russian roulette
 Try using plane reflection to generate rotated hemisphere over rotation matrices. Branching can be avoided by being clever
 Try precomputing the rotation matrix since we have that the second Vec is always (0,0f,1)
 
@@ -50,6 +51,8 @@ See jacco blog for kernel optimization (use small kernels over a singular megake
 Data oriented design (DOD), means that we should not use OOP and instead store each type of 'object' in their own array which reduces branching and improves
 memory locality. This means all materials and geometric primitives should be processed in their own array.
 Could use CUDA SIMD intrinsics for even more speed.
+Metropolis-Hastings
+Multiple importance sampling
 */
 
 using namespace std;
@@ -72,11 +75,11 @@ public:
 	}
 
 	Intersection castRay(Ray ray) {
-		float minT = -1.0f;
+		float minT = INFINITY;
 		Obj *hitObj = NULL;
 		for (Obj *obj : objs) {
 			float t = obj->intersect(ray);
-			if (t > EPS && (minT < 0.0 || t < minT)) {
+			if (t > EPS && t < minT) {
 				minT = t;
 				hitObj = obj;
 			}
@@ -100,9 +103,9 @@ void buildScene() {
 	Material lightMat = { Vec3(), 320.0f, Surface(reflective) };
 
 	scene.addObject(new Plane(Vec3(0.0f, 2.05f, 0.0f), Vec3(0.0f, -1.0f, 0.0f)), diffuseMat);
-	/*
-	scene.addObject(new Sphere(Vec3(0f, 0.5f, -4.0f), 1.3f), specularMat);
+	scene.addObject(new Sphere(Vec3(0.0f, 0.5f, -4.0f), 1.3f), specularMat);
 	scene.addObject(new Sphere(Vec3(1.7f, 0.5f, -6.0f), 1.3f), diffuseMat);
+	/*
 	scene.addObject(new Plane(Vec3(0.0f, 0.0f, -7.0f), Vec3(0.0f, 0.0f, 1.0)), diffuseMat);
 	scene.addObject(new Plane(Vec3(0.0f, 0.0f, 2.0f), Vec3(0.0f, 0.0f, -1.0)), diffuseMat);*//*
 	scene.addObject(new Plane(Vec3(0.0f, -4.0f, 0.0f), Vec3(0.0f, 1.0f, 0.0)), lightMat);
@@ -144,7 +147,7 @@ Vec3 rayTrace(Ray ray, int depth) {
 		return Vec3();
 	}
 	Intersection intersection = scene.castRay(ray);
-	if (intersection.t < 0.0f ) {
+	if (isinf(intersection.t)) {
 		return Vec3(AMBIENT);
 	}
 
@@ -222,6 +225,10 @@ string getDateTime() {
 }
 
 int main() {
+	if (!std::numeric_limits<float>::is_iec559) {
+		cout << "Machine architecture must implement IEEE 754.\n";
+		return 0;
+	}
 	// Init texture
 	sf::Image image;
 	image.create(WIDTH, HEIGHT);

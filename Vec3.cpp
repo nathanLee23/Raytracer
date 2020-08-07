@@ -1,6 +1,7 @@
 #include <iostream>
-#include "Vec3.h"
 #include <algorithm>
+
+#include "Vec3.h"
 
 using namespace std;
 
@@ -50,7 +51,7 @@ Vec3 operator*(const Vec3 a, const Vec3 b) {
 	return Vec3(a.x*b.x, a.y*b.y, a.z*b.z);
 }
 Vec3 operator/(const Vec3 a, float b) {
-	return a * (1 / b);
+	return a * (1.0f / b);
 }
 Vec3 operator-(const Vec3 a) {
 	return Vec3(-a.x, -a.y, -a.z);

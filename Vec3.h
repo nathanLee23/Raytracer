@@ -1,7 +1,7 @@
 #pragma once
-#include "SFML/Graphics/Color.hpp"
-
 #include <iostream>
+
+#include "SFML/Graphics/Color.hpp"
 class Vec3 {
 public:
 	float x, y, z;

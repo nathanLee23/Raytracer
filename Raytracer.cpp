@@ -28,7 +28,7 @@
 #define FOVX (50.0f/180.0f*M_PI)
 
 #define AMBIENT 300.0f
-#define MIN_BOUNCES 7
+#define MAX_BOUNCES 7
 #define SAMPLES_PER_PIXEL 50
 
 /*
@@ -103,9 +103,9 @@ void buildScene() {
 	Material lightMat = { Vec3(), 320.0f, Surface(reflective) };
 
 	scene.addObject(new Plane(Vec3(0.0f, 2.05f, 0.0f), Vec3(0.0f, -1.0f, 0.0f)), diffuseMat);
+	/*
 	scene.addObject(new Sphere(Vec3(0.0f, 0.5f, -4.0f), 1.3f), specularMat);
 	scene.addObject(new Sphere(Vec3(1.7f, 0.5f, -6.0f), 1.3f), diffuseMat);
-	/*
 	scene.addObject(new Plane(Vec3(0.0f, 0.0f, -7.0f), Vec3(0.0f, 0.0f, 1.0)), diffuseMat);
 	scene.addObject(new Plane(Vec3(0.0f, 0.0f, 2.0f), Vec3(0.0f, 0.0f, -1.0)), diffuseMat);*//*
 	scene.addObject(new Plane(Vec3(0.0f, -4.0f, 0.0f), Vec3(0.0f, 1.0f, 0.0)), lightMat);
@@ -150,13 +150,11 @@ Vec3 rayTrace(Ray ray, int depth) {
 	if (isinf(intersection.t)) {
 		return Vec3(AMBIENT);
 	}
-
 	Vec3 hp = intersection.t*ray.d + ray.o;
 	ray.o = hp;
 
 	Obj *obj = intersection.hitObj;
 	Vec3 n = obj->normal(hp);
-
 
 	Vec3 clr = Vec3(obj->material.emission);
 
@@ -168,7 +166,7 @@ Vec3 rayTrace(Ray ray, int depth) {
 	} else if (obj->material.surface == diffuse) {
 		// This line is optimizable since the vector to rotate is constant
 		Matrix3 rotMatrix = rotMatrixVectors(n, Vec3(0.0f, 0.0f, 1.0f));
-		ray.d = rotMatrix*sampleHemisphere();
+		ray.d = rotMatrix * sampleHemisphere();
 		float cos_t = ray.d.dot(n);
 		return clr + rayTrace(ray, depth - 1)*obj->material.albedo * cos_t;
 	} else if (obj->material.surface == specular) {
@@ -202,9 +200,9 @@ void draw(sf::Image &image) {
 		for (int px = 0; px < WIDTH; px++) {
 			Vec3 colorVec = Vec3();
 			for (int sample = 0; sample < SAMPLES_PER_PIXEL; sample++) {
-				colorVec = colorVec + rayTrace(cameraRay(px + pix(generator), py + pix(generator)), MIN_BOUNCES);
+				colorVec = colorVec + rayTrace(cameraRay(px + pix(generator), py + pix(generator)), MAX_BOUNCES);
 			}
-			image.setPixel(px, py, (colorVec/SAMPLES_PER_PIXEL).toColor()); // Not threadsafe
+			image.setPixel(px, py, (colorVec/SAMPLES_PER_PIXEL).toColor());
 		}
 	}
 

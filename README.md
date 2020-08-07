@@ -9,6 +9,9 @@ A toy raytracer for learning.
 - Multithreading via openMP
 
 ## TODO
+### Bugs
+- Specular refractive index fix
+
 ### Misc. Optimization
 - Test Vec4
 - Investigate using plane reflection to generate rotated hemisphere over rotation matrices. Branching can be avoided by being clever
@@ -21,6 +24,7 @@ A toy raytracer for learning.
 - Improve self intersection handling (see raytracing gems)
 
 ### Variance reduction
+- Hemisphere sampling
 - Russian roulette
 - Metropolis-Hastings
 - Multiple importance sampling

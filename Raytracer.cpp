@@ -24,16 +24,38 @@
 
 #define WIDTH 1000
 #define HEIGHT 1000
-#define FOVX (50.0/180.0*M_PI)
+#define FOVX (50.0f/180.0f*M_PI)
 
-#define AMBIENT 300.0
+#define AMBIENT 300.0f
 #define MIN_BOUNCES 7
-#define SAMPLES 40
+#define SAMPLES_PER_PIXEL 50
+
+/*
+Easy
+Implement AABB
+Try Vec4
+Have raytracing use Inf
+Try using plane reflection to generate rotated hemisphere over rotation matrices. Branching can be avoided by being clever
+Try precomputing the rotation matrix since we have that the second Vec is always (0,0f,1)
+
+Medium
+The BVH is a static tree which might be optimizable.
+The BVH being static could be made into an array which is likely faster. See PBRT book
+- Shadow rays, operate on a line segment, if ANY intersection is found between the 2 points then that is sufficient and you can early terminate,
+- Light rays must find the closest point of interesction so all points must be investigated.
+Research self intersection in raytracing gems
+
+Hard
+See jacco blog for kernel optimization (use small kernels over a singular megakernel).
+Data oriented design (DOD), means that we should not use OOP and instead store each type of 'object' in their own array which reduces branching and improves
+memory locality. This means all materials and geometric primitives should be processed in their own array.
+Could use CUDA SIMD intrinsics for even more speed.
+*/
 
 using namespace std;
 
 struct Intersection {
-	double t;
+	float t;
 	Obj * hitObj;
 	Material material;
 };
@@ -50,10 +72,10 @@ public:
 	}
 
 	Intersection castRay(Ray ray) {
-		double minT = -1.0;
+		float minT = -1.0f;
 		Obj *hitObj = NULL;
 		for (Obj *obj : objs) {
-			double t = obj->intersect(ray);
+			float t = obj->intersect(ray);
 			if (t > EPS && (minT < 0.0 || t < minT)) {
 				minT = t;
 				hitObj = obj;
@@ -67,52 +89,54 @@ public:
 Scene scene;
 
 default_random_engine generator;
-uniform_real_distribution<double> pix(-0.5, 0.5); // Need a better name for this
-uniform_real_distribution<double> hemisphere(0.0, 1.0); // Need a better name for this
+uniform_real_distribution<float> pix(-0.5f, 0.5f); // Need a better name for this
+uniform_real_distribution<float> hemisphere(0.0f, 1.0f); // Need a better name for this
 
 void buildScene() {
-	Material mirrorMat = { Vec3(), 0.0, Surface(reflective) };
-	Material diffuseMat = { Vec3(9.0,9.0,9.0), 0.0, Surface(diffuse) };
-	Material specularMat = { Vec3(), 0.0, Surface(specular) };
-	Material lightMat = { Vec3(), 320.0, Surface(reflective) };
-	scene.addObject(new Sphere(Vec3(0, 0.5, -4.0), 0.3), specularMat);
-	scene.addObject(new Sphere(Vec3(0, 0.5, -4.0), 0.6), specularMat);
-	scene.addObject(new Sphere(Vec3(0, 0.5, -4.0), 1.3), specularMat);
-	//scene.addObject(new Plane(Vec3(0.0, 0.0, -7.0), Vec3(0.0, 0.0, 1.0)), diffuseMat);
-	//scene.addObject(new Plane(Vec3(0.0, 0.0, 2.0), Vec3(0.0, 0.0, -1.0)), diffuseMat);
-	scene.addObject(new Plane(Vec3(0.0, 2.05, 0.0), Vec3(0.0, -1.0, 0.0)), diffuseMat);
-	//scene.addObject(new Plane(Vec3(0.0, -4.0, 0.0), Vec3(0.0, 1.0, 0.0)), lightMat);
-	//scene.addObject(new Plane(Vec3(4.0, 0.0, 0.0), Vec3(-1.0, 0.0, 0.0)), diffuseMat);
-	//scene.addObject(new Plane(Vec3(-4.0, 0.0, 0.0), Vec3(1.0, 0.0, 0.0)), diffuseMat);
+	Material mirrorMat = { Vec3(), 0.0f, Surface(reflective) };
+	Material diffuseMat = { Vec3(0.9f,0.9f,0.9f), 0.0f, Surface(diffuse) };
+	Material redMat = { Vec3(M_PI / 2.0f,0.3f,0.3f), 0.0f, Surface(diffuse) };
+	Material specularMat = { Vec3(1.0f), 0.0f, Surface(specular) };
+	Material lightMat = { Vec3(), 320.0f, Surface(reflective) };
+
+	scene.addObject(new Plane(Vec3(0.0f, 2.05f, 0.0f), Vec3(0.0f, -1.0f, 0.0f)), diffuseMat);
+	/*
+	scene.addObject(new Sphere(Vec3(0f, 0.5f, -4.0f), 1.3f), specularMat);
+	scene.addObject(new Sphere(Vec3(1.7f, 0.5f, -6.0f), 1.3f), diffuseMat);
+	scene.addObject(new Plane(Vec3(0.0f, 0.0f, -7.0f), Vec3(0.0f, 0.0f, 1.0)), diffuseMat);
+	scene.addObject(new Plane(Vec3(0.0f, 0.0f, 2.0f), Vec3(0.0f, 0.0f, -1.0)), diffuseMat);*//*
+	scene.addObject(new Plane(Vec3(0.0f, -4.0f, 0.0f), Vec3(0.0f, 1.0f, 0.0)), lightMat);
+	scene.addObject(new Plane(Vec3(4.0f, 0.0f, 0.0f), Vec3(-1.0f, 0.0f, 0.0)), diffuseMat);
+	scene.addObject(new Plane(Vec3(-4.0f, 0.0f, 0.0f), Vec3(1.0f, 0.0f, 0.0)), redMat);*/
 
 	/*for (Obj *obj : scene) {
-		if (obj->emission > 0.0) {
+		if (obj->emission > 0.0f) {
 			lights.push_back(obj);
 		}
 	}*/
 }
 
 // Transform pixel coordinates to perspective rays
-// Camera is at (0,0,0) facing (0,0,-1)
-Ray cameraRay(double px, double py) {
-	double x = (2.0 * px - WIDTH) / WIDTH * tan(FOVX);
-	double y = (2.0 * py - HEIGHT) / HEIGHT * tan(((double) HEIGHT) / WIDTH * FOVX);
-	double z = -1;
+// Camera is at (0,0f,0) facing (0,0f,-1)
+Ray cameraRay(float px, float py) {
+	float x = (2.0f * px - WIDTH) / WIDTH * tan(FOVX);
+	float y = (2.0f * py - HEIGHT) / HEIGHT * tan(((float) HEIGHT) / WIDTH * FOVX);
+	float z = -1.0f;
 	return Ray(Vec3(), Vec3(x, y, z));
 }
 
 Vec3 sampleHemisphere() {
-	double u1 = hemisphere(generator);
-	double u2 = hemisphere(generator);
-	double r = sqrt(1.0 - u1 * u1);
-	double phi = u2 * M_PI * 2.0;
+	float u1 = hemisphere(generator);
+	float u2 = hemisphere(generator);
+	float r = sqrt(1.0f - u1 * u1);
+	float phi = u2 * M_PI * 2.0f;
 	return Vec3(cos(phi)*r, sin(phi)*r, u1);
 }
 
-double shlickApprox(double r, double R0, double cos_t2) {
-	double x = 1 - cos_t2;
-	double x2 = x * x;
-	return R0 + (1 - R0)*x2*x2*x;
+float shlickApprox(float r, float R0, float cos_t2) {
+	float x = 1.0f - cos_t2;
+	float x2 = x * x;
+	return R0 + (1.0f - R0)*x2*x2*x;
 }
 
 Vec3 rayTrace(Ray ray, int depth) {
@@ -120,9 +144,10 @@ Vec3 rayTrace(Ray ray, int depth) {
 		return Vec3();
 	}
 	Intersection intersection = scene.castRay(ray);
-	if (intersection.t < 0.0 ) {
+	if (intersection.t < 0.0f ) {
 		return Vec3(AMBIENT);
 	}
+
 	Vec3 hp = intersection.t*ray.d + ray.o;
 	ray.o = hp;
 
@@ -133,34 +158,35 @@ Vec3 rayTrace(Ray ray, int depth) {
 	Vec3 clr = Vec3(obj->material.emission);
 
 	if (obj->material.surface == reflective) {
-		double cos_t = ray.d.dot(n);
+		float cos_t = ray.d.dot(n);
 
-		ray.d = (ray.d - (n * cos_t * 2)).normalized();
+		ray.d = (ray.d - (n * cos_t * 2.0f)).normalized();
 		return clr + rayTrace(ray, depth - 1);
 	} else if (obj->material.surface == diffuse) {
-		Matrix3 rotMatrix = rotMatrixVectors(n, Vec3(0.0, 0.0, 1.0));
+		// This line is optimizable since the vector to rotate is constant
+		Matrix3 rotMatrix = rotMatrixVectors(n, Vec3(0.0f, 0.0f, 1.0f));
 		ray.d = rotMatrix*sampleHemisphere();
-		double cos_t = ray.d.dot(n);
-		return clr + rayTrace(ray, depth - 1)*obj->material.albedo * 0.1 * cos_t;
+		float cos_t = ray.d.dot(n);
+		return clr + rayTrace(ray, depth - 1)*obj->material.albedo * cos_t;
 	} else if (obj->material.surface == specular) {
-		double r = 1.0 / 1.3;
-		double cos_t1 = -n.dot(ray.d);
-		if (cos_t1 < 0.0) {
+		float r = 1.0f / 1.3f;
+		float cos_t1 = -n.dot(ray.d);
+		if (cos_t1 < 0.0f) {
 			// We're inside the specular object
 			r = 1 / r;
 			cos_t1 *= -1;
 			n = -n;
 		}
-		double R0 = (1.0 - 1.3) / (1.0 + 1.3);
+		float R0 = (1.0f - 1.3f) / (1.0f + 1.3f);
 		R0 *= R0;
-		double cos_t2 = sqrt(1 - r * r*(1 - cos_t1 * cos_t1));
-		double R = shlickApprox(r, R0, cos_t2);
-		if (cos_t2 >= 0 && hemisphere(generator) > R) {
+		float cos_t2 = sqrt(1.0f - r * r*(1.0f - cos_t1 * cos_t1));
+		float R = shlickApprox(r, R0, cos_t2);
+		if (cos_t2 >= 0.0f && hemisphere(generator) > R) {
 			ray.d = (r*ray.d + (r*cos_t1 - cos_t2)*n).normalized();
 		} else {
 			ray.d = (ray.d - (n * cos_t1 * 2)).normalized();
 		}
-		return clr + rayTrace(ray, depth - 1);
+		return clr + rayTrace(ray, depth - 1) * obj->material.albedo;
 	}
 	return clr;
 }
@@ -172,10 +198,10 @@ void draw(sf::Image &image) {
 	for (int py = 0; py < HEIGHT; py++) {
 		for (int px = 0; px < WIDTH; px++) {
 			Vec3 colorVec = Vec3();
-			for (int sample = 0; sample < SAMPLES; sample++) {
+			for (int sample = 0; sample < SAMPLES_PER_PIXEL; sample++) {
 				colorVec = colorVec + rayTrace(cameraRay(px + pix(generator), py + pix(generator)), MIN_BOUNCES);
 			}
-			image.setPixel(px, py, (colorVec/SAMPLES).toColor()); // Not threadsafe
+			image.setPixel(px, py, (colorVec/SAMPLES_PER_PIXEL).toColor()); // Not threadsafe
 		}
 	}
 

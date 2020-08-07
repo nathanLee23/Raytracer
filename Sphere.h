@@ -4,10 +4,10 @@
 class Sphere : public Obj {
 public:
 	Vec3 c;
-	double r;
+	float r;
 
-	Sphere(Vec3 c, double r);
-	double intersect(Ray ray);
+	Sphere(Vec3 c, float r);
+	float intersect(Ray ray);
 	Vec3 normal(Vec3 p);
 };
 

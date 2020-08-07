@@ -9,6 +9,6 @@ enum Surface {
 
 struct Material {
 	Vec3 albedo;
-	double emission;
+	float emission;
 	Surface surface;
 };

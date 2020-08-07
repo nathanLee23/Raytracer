@@ -9,7 +9,7 @@ public:
 
 	// Returns the t for which r.o+t*r.d intersects the object
 	// Returns a negative number if no intersection exists
-	virtual double intersect(Ray ray) = 0;
+	virtual float intersect(Ray ray) = 0;
 
 	// If p is a point on the object normal() returns the normalized normal of the object at the point
 	virtual Vec3 normal(Vec3 p) = 0;

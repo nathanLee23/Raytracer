@@ -6,7 +6,7 @@ Plane::Plane(Vec3 a, Vec3 _n) {
 	k = n.dot(a);
 }
 
-double Plane::intersect(Ray ray) {
+float Plane::intersect(Ray ray) {
 	float d = n.dot(ray.d);
 	if (d == 0.0) {
 		return -1.0;

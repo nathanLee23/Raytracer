@@ -16,8 +16,8 @@ Vec3 operator *(const Matrix3& m, const Vec3 v) {
 Matrix3 rotMatrixVectors(Vec3 a, Vec3 b) {
 	Vec3 axis = b.cross(a);
 
-	double c = a.dot(b);
-	double s = axis.norm();
+	float c = a.dot(b);
+	float s = axis.norm();
 
 	Matrix3 rotMatrix;
 	rotMatrix.matrix[0][0] = c + axis.x*axis.x*(1.0 - c);
@@ -32,9 +32,9 @@ Matrix3 rotMatrixVectors(Vec3 a, Vec3 b) {
 	return rotMatrix;
 }
 
-Matrix3 rotMatrixOnAxis(const Vec3 axis, double angle) {
-	double c = cos(angle);
-	double s = sin(angle);
+Matrix3 rotMatrixOnAxis(const Vec3 axis, float angle) {
+	float c = cos(angle);
+	float s = sin(angle);
 
 	Matrix3 rotMatrix;
 	rotMatrix.matrix[0][0] = c + axis.x*axis.x*(1.0 - c);

@@ -11,10 +11,13 @@ A toy raytracer for learning.
 ## TODO
 ### Misc. Features
 - BDPT
-- Skybox
 - Import .obj files
+- Skybox
 - Movable camera preview to get good camera angles and positioning before rendering
 - Spectral rendering
+
+### Bugs
+- Specular refractive index fix
 
 ### Raycasting improvements
 ~~- Implement AABB~~
@@ -25,6 +28,7 @@ A toy raytracer for learning.
 ### Variance reduction
 ~~- Russian roulette~~
 - Metropolis-Hastings (Metropolis Light Transport or Energy redistribution path tracing)
+- Hemisphere sampling
 - Multiple importance sampling
 
 ### CUDA

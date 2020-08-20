@@ -1,5 +1,5 @@
 #pragma once
-#include "Vec3.h"
+#include "geometry/Vec3.h"
 
 enum Surface {
 	diffuse,

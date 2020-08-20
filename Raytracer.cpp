@@ -4,6 +4,7 @@
 #include <iostream>
 #include <fstream>
 #include <string.h>
+#include <array>
 
 #define _USE_MATH_DEFINES
 #include <math.h>
@@ -15,27 +16,30 @@
 
 #include <SFML/Graphics.hpp>
 
-#include "Vec3.h"
+#include "geometry/Vec3.h"
 #include "Material.h"
-#include "Obj.h"
-#include "Sphere.h"
-#include "Plane.h"
+
+#include "geometry/Obj.h"
+#include "geometry/Sphere.h"
+#include "geometry/Plane.h"
+#include "geometry/Box.h"
 #include "constants.h"
-#include "Matrix3.h"
+#include "geometry/Matrix3.h"
 
 #define WIDTH 1000
 #define HEIGHT 1000
-#define FOVX (50.0f/180.0f*M_PI)
+#define FOVX (120.0f/180.0f*M_PI/2.0f)
 
-#define AMBIENT 300.0f
+#define AMBIENT 255.0f
 #define MAX_BOUNCES 7
-#define SAMPLES_PER_PIXEL 50
+#define SAMPLES_PER_PIXEL 500
+#define BOUNCE_PROB 0.7f
+#define HEMISPHERE_AREA (M_PI*2.0f)
 
 /*
 Easy
-Implement AABB
+Implement AABB https://tavianator.com/2011/ray_box.html
 Try Vec4
-Russian roulette
 Try using plane reflection to generate rotated hemisphere over rotation matrices. Branching can be avoided by being clever
 Try precomputing the rotation matrix since we have that the second Vec is always (0,0f,1)
 
@@ -74,7 +78,7 @@ public:
 		objs.push_back(obj);
 	}
 
-	Intersection castRay(Ray ray) {
+	Intersection castRay(Ray& ray) {
 		float minT = INFINITY;
 		Obj *hitObj = NULL;
 		for (Obj *obj : objs) {
@@ -95,22 +99,32 @@ default_random_engine generator;
 uniform_real_distribution<float> pix(-0.5f, 0.5f); // Need a better name for this
 uniform_real_distribution<float> hemisphere(0.0f, 1.0f); // Need a better name for this
 
-void buildScene() {
+void buildScene(int i) {
 	Material mirrorMat = { Vec3(), 0.0f, Surface(reflective) };
 	Material diffuseMat = { Vec3(0.9f,0.9f,0.9f), 0.0f, Surface(diffuse) };
-	Material redMat = { Vec3(M_PI / 2.0f,0.3f,0.3f), 0.0f, Surface(diffuse) };
+	Material redMat = { Vec3(0.95f,0.3f,0.3f), 0.0f, Surface(diffuse) };
+	Material greenMat = { Vec3(0.3f, 0.95f,0.3f), 0.0f, Surface(diffuse) };
 	Material specularMat = { Vec3(1.0f), 0.0f, Surface(specular) };
-	Material lightMat = { Vec3(), 320.0f, Surface(reflective) };
-
-	scene.addObject(new Plane(Vec3(0.0f, 2.05f, 0.0f), Vec3(0.0f, -1.0f, 0.0f)), diffuseMat);
+	Material lightMat = { Vec3(), 260.0f, Surface(reflective) };
+	switch (i) {
+	default:
+		break;
+	case 0: // Plane
+		scene.addObject(new Plane(Vec3(0.0f, 2.05f, 0.0f), Vec3(0.0f, -1.0f, 0.0f)), diffuseMat);
+		scene.addObject(new Sphere(Vec3(2.0f, 1.0f, -4.0f), 0.8f), lightMat);
+		scene.addObject(new Sphere(Vec3(1.7f, 0.5f, -6.0f), 1.3f), specularMat);
+		break;
+	case 1: // Cornell
+		scene.addObject(new Plane(Vec3(0.0f, 0.0f, -800.0f), Vec3(0.0f, 0.0f, 1.0)), diffuseMat);
+		scene.addObject(new Plane(Vec3(0.0f, 0.0f, 800.0f), Vec3(0.0f, 0.0f, -1.0)), diffuseMat);
+		scene.addObject(new Plane(Vec3(0.0f, 800.0f, 0.0f), Vec3(0.0f, -1.0f, 0.0f)), diffuseMat);
+		scene.addObject(new Plane(Vec3(0.0f, -800.0f, 0.0f), Vec3(0.0f, 1.0f, 0.0)), lightMat);
+		scene.addObject(new Plane(Vec3(800.0f, 0.0f, 0.0f), Vec3(-1.0f, 0.0f, 0.0)), greenMat);
+		scene.addObject(new Plane(Vec3(-800.0f, 0.0f, 0.0f), Vec3(1.0f, 0.0f, 0.0)), redMat);
+		break;
+	}
+	//scene.addObject(new Box(Vec3(1.0f, 1.0f, -3.0f), Vec3(1.0f, 1.0f, -3.0f) + Vec3(1.0f, 1.0f, 0.0f)), diffuseMat);
 	/*
-	scene.addObject(new Sphere(Vec3(0.0f, 0.5f, -4.0f), 1.3f), specularMat);
-	scene.addObject(new Sphere(Vec3(1.7f, 0.5f, -6.0f), 1.3f), diffuseMat);
-	scene.addObject(new Plane(Vec3(0.0f, 0.0f, -7.0f), Vec3(0.0f, 0.0f, 1.0)), diffuseMat);
-	scene.addObject(new Plane(Vec3(0.0f, 0.0f, 2.0f), Vec3(0.0f, 0.0f, -1.0)), diffuseMat);*//*
-	scene.addObject(new Plane(Vec3(0.0f, -4.0f, 0.0f), Vec3(0.0f, 1.0f, 0.0)), lightMat);
-	scene.addObject(new Plane(Vec3(4.0f, 0.0f, 0.0f), Vec3(-1.0f, 0.0f, 0.0)), diffuseMat);
-	scene.addObject(new Plane(Vec3(-4.0f, 0.0f, 0.0f), Vec3(1.0f, 0.0f, 0.0)), redMat);*/
 
 	/*for (Obj *obj : scene) {
 		if (obj->emission > 0.0f) {
@@ -120,12 +134,16 @@ void buildScene() {
 }
 
 // Transform pixel coordinates to perspective rays
-// Camera is at (0,0f,0) facing (0,0f,-1)
-Ray cameraRay(float px, float py) {
+// Camera is at (0,0,0) facing (0,0,-1)
+void cameraRay(float px, float py, Ray& ray) {
 	float x = (2.0f * px - WIDTH) / WIDTH * tan(FOVX);
+	// Can make the tan computation constant
 	float y = (2.0f * py - HEIGHT) / HEIGHT * tan(((float) HEIGHT) / WIDTH * FOVX);
 	float z = -1.0f;
-	return Ray(Vec3(), Vec3(x, y, z));
+	ray.o = Vec3();
+	ray.d = Vec3(x,y,z).normalized();
+
+	//return Ray(Vec3(), Vec3(x, y, z));
 }
 
 Vec3 sampleHemisphere() {
@@ -142,71 +160,95 @@ float shlickApprox(float r, float R0, float cos_t2) {
 	return R0 + (1.0f - R0)*x2*x2*x;
 }
 
-Vec3 rayTrace(Ray ray, int depth) {
-	if (depth <= 0) {
-		return Vec3();
-	}
-	Intersection intersection = scene.castRay(ray);
-	if (isinf(intersection.t)) {
-		return Vec3(AMBIENT);
-	}
-	Vec3 hp = intersection.t*ray.d + ray.o;
-	ray.o = hp;
-
-	Obj *obj = intersection.hitObj;
-	Vec3 n = obj->normal(hp);
-
-	Vec3 clr = Vec3(obj->material.emission);
-
-	if (obj->material.surface == reflective) {
-		float cos_t = ray.d.dot(n);
-
-		ray.d = (ray.d - (n * cos_t * 2.0f)).normalized();
-		return clr + rayTrace(ray, depth - 1);
-	} else if (obj->material.surface == diffuse) {
-		// This line is optimizable since the vector to rotate is constant
-		Matrix3 rotMatrix = rotMatrixVectors(n, Vec3(0.0f, 0.0f, 1.0f));
-		ray.d = rotMatrix * sampleHemisphere();
-		float cos_t = ray.d.dot(n);
-		return clr + rayTrace(ray, depth - 1)*obj->material.albedo * cos_t;
-	} else if (obj->material.surface == specular) {
-		float r = 1.0f / 1.3f;
-		float cos_t1 = -n.dot(ray.d);
-		if (cos_t1 < 0.0f) {
-			// We're inside the specular object
-			r = 1 / r;
-			cos_t1 *= -1;
-			n = -n;
+Vec3 rayTrace(Ray& ray, int depth) {
+	Vec3 attenuation = Vec3(1.0f);
+	Vec3 color = Vec3(0.0f);
+	while (true) {
+		Intersection intersection = scene.castRay(ray);
+		if (isinf(intersection.t)) {
+			color = color + attenuation*Vec3(AMBIENT);
+			break;
 		}
-		float R0 = (1.0f - 1.3f) / (1.0f + 1.3f);
-		R0 *= R0;
-		float cos_t2 = sqrt(1.0f - r * r*(1.0f - cos_t1 * cos_t1));
-		float R = shlickApprox(r, R0, cos_t2);
-		if (cos_t2 >= 0.0f && hemisphere(generator) > R) {
-			ray.d = (r*ray.d + (r*cos_t1 - cos_t2)*n).normalized();
-		} else {
-			ray.d = (ray.d - (n * cos_t1 * 2)).normalized();
+
+		Vec3 hp = intersection.t*ray.d + ray.o;
+		ray.o = hp;
+
+		Obj *obj = intersection.hitObj;
+		Vec3 n = obj->normal(hp);
+		Vec3 emission = Vec3(obj->material.emission);
+
+		if (obj->material.surface == reflective) {
+			float cos_t = ray.d.dot(n);
+
+			ray.d = (ray.d - (n * cos_t * 2.0f)).normalized();
+			color = color + emission * attenuation;
+		} else if (obj->material.surface == diffuse) {
+			// This line is optimizable since the vector to rotate is constant
+			Matrix3 rotMatrix = rotMatrixVectors(n, Vec3(0.0f, 0.0f, 1.0f));
+			ray.d = rotMatrix * sampleHemisphere();
+			float cos_t = ray.d.dot(n);
+			color = color + emission * attenuation;
+			attenuation = attenuation * obj->material.albedo* cos_t;
+		} else if (obj->material.surface == specular) {
+			float r = 1.0f / 1.3f;
+			float cos_t1 = -n.dot(ray.d);
+			if (cos_t1 < 0.0f) {
+				// We're inside the specular object
+				r = 1 / r;
+				cos_t1 *= -1;
+				n = -n;
+			}
+			float R0 = (1.0f - 1.3f) / (1.0f + 1.3f);
+			R0 *= R0;
+			float cos_t2 = sqrt(1.0f - r * r*(1.0f - cos_t1 * cos_t1));
+			float R = shlickApprox(r, R0, cos_t2);
+			if (1.0f > r * r*(1.0f - cos_t1 * cos_t1) && hemisphere(generator) > R) {
+				// Refraction through the specular surface
+				ray.d = (r*ray.d + (r*cos_t1 - cos_t2)*n).normalized();
+			} else {
+				// Reflection off the specular surface
+				ray.d = (ray.d - (n * cos_t1 * 2)).normalized();
+			}
+			color = color + emission * attenuation;
+			attenuation = attenuation * obj->material.albedo;
 		}
-		return clr + rayTrace(ray, depth - 1) * obj->material.albedo;
+		if (hemisphere(generator) > BOUNCE_PROB) {
+			break;
+		}
+		attenuation = attenuation / BOUNCE_PROB;
 	}
-	return clr;
+	return color;
 }
 
-void draw(sf::Image &image) {
+void draw(array<array<Vec3, WIDTH>, HEIGHT> *img) {
 	auto t1 = chrono::high_resolution_clock::now();
 
 	#pragma omp parallel for schedule(dynamic) num_threads(2)
 	for (int py = 0; py < HEIGHT; py++) {
 		for (int px = 0; px < WIDTH; px++) {
+			Ray ray = Ray(Vec3(), Vec3());
 			Vec3 colorVec = Vec3();
 			for (int sample = 0; sample < SAMPLES_PER_PIXEL; sample++) {
-				colorVec = colorVec + rayTrace(cameraRay(px + pix(generator), py + pix(generator)), MAX_BOUNCES);
+				cameraRay(px + pix(generator), py + pix(generator), ray);
+				colorVec = colorVec + rayTrace(ray, MAX_BOUNCES);
 			}
-			image.setPixel(px, py, (colorVec/SAMPLES_PER_PIXEL).toColor());
+			(*img)[py][px] = colorVec / SAMPLES_PER_PIXEL;
 		}
 	}
 
-	cout << "Took " + to_string(chrono::duration_cast<std::chrono::microseconds>(chrono::high_resolution_clock::now() - t1).count() / 1000000.0) + "s\n";
+	float seconds = (chrono::duration_cast<std::chrono::microseconds>(chrono::high_resolution_clock::now() - t1).count() / 1000000.0);
+	cout << "Took " + to_string(seconds) + "s\n";
+	cout << "Cast " << SAMPLES_PER_PIXEL * WIDTH*HEIGHT << " rays\n";
+	cout << SAMPLES_PER_PIXEL * WIDTH*HEIGHT / seconds << " rays per second \n";
+	cout << "Average bounces: " << BOUNCE_PROB/(1.0f - BOUNCE_PROB) << endl;
+}
+
+void toneMap(array<array<Vec3, WIDTH>, HEIGHT> *img) {
+	for (int py = 0; py < HEIGHT; py++) {
+		for (int px = 0; px < WIDTH; px++) {
+			(*img)[py][px] = 255.0f*Vec3(sqrt((*img)[py][px].x/255.0f), sqrt((*img)[py][px].y / 255.0f), sqrt((*img)[py][px].z / 255.0f));
+		}
+	}
 }
 
 string getDateTime() {
@@ -227,15 +269,31 @@ int main() {
 		cout << "Machine architecture must implement IEEE 754.\n";
 		return 0;
 	}
-	// Init texture
+
+	// Create scene
+	//cout << "Choose scene (0-" << MAX_SCENES << "): ";
+	//int sceneIndex = 0;
+	//cin >> sceneIndex;
+	buildScene(1);
+
+	array<array<Vec3, WIDTH>, HEIGHT>* img = new array<array<Vec3, WIDTH>, HEIGHT>();
+	// Render scene
+	draw(img);
+
+	//// Tone map resulting image
+	toneMap(img);
+
 	sf::Image image;
 	image.create(WIDTH, HEIGHT);
-
-	// Render scene
-	buildScene();
-	draw(image);
-
 	// Load image
+	for (int py = 0; py < HEIGHT; py++) {
+		for (int px = 0; px < WIDTH; px++) {
+			image.setPixel(px, py, (*img)[py][px].toColor());
+		}
+	}
+	delete img;
+
+	// Init texture
 	sf::RenderWindow window(sf::VideoMode(WIDTH, HEIGHT), "Ray tracer");
 	sf::Texture texture;
 	sf::Sprite sprite;

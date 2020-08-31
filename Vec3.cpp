@@ -33,8 +33,16 @@ Vec3 Vec3::normalized() {
 Vec3 Vec3::proj(Vec3 a) {
 	return dot(a) / sqrNorm() * (*this);
 }
-sf::Color Vec3::toColor() {
-	return sf::Color(min(255.0f, x), min(255.0f, y), min(255.0f, z));
+
+float tosRGB(float x) {
+	if (x <= 0.0031308f) {
+		return 12.92f * x;
+	} else {
+		return 1.055f * powf(x, 1 / 2.4) - 0.055;
+	}
+}
+sf::Color Vec3::tosRGB() {
+	return sf::Color(255.0f*min(1.0f, x), 255.0f*min(1.0f, y), 255.0f*min(1.0f, z));
 }
 float Vec3::operator[] (int i) {
 	switch (i) {

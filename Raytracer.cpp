@@ -16,32 +16,27 @@
 
 #include <SFML/Graphics.hpp>
 
-#include "geometry/Vec3.h"
+#include "Vec3.h"
+#include "Matrix3.h"
 #include "Material.h"
 
-#include "geometry/Obj.h"
-#include "geometry/Sphere.h"
-#include "geometry/Plane.h"
-#include "geometry/Box.h"
-#include "constants.h"
-#include "geometry/Matrix3.h"
+#include "Obj.h"
+#include "globals.h"
 
 #define WIDTH 1000
 #define HEIGHT 1000
 #define FOVX (120.0f/180.0f*M_PI/2.0f)
+#define ACTIVE_SCENE 1
 
-#define AMBIENT 255.0f
+#define AMBIENT 1.0f
 #define MAX_BOUNCES 7
-#define SAMPLES_PER_PIXEL 500
-#define BOUNCE_PROB 0.7f
+#define SAMPLES_PER_PIXEL 50
+#define BOUNCE_PROB 0.6f
 #define HEMISPHERE_AREA (M_PI*2.0f)
 
 /*
 Easy
-Implement AABB https://tavianator.com/2011/ray_box.html
 Try Vec4
-Try using plane reflection to generate rotated hemisphere over rotation matrices. Branching can be avoided by being clever
-Try precomputing the rotation matrix since we have that the second Vec is always (0,0f,1)
 
 Medium
 The BVH is a static tree which might be optimizable.
@@ -95,32 +90,47 @@ public:
 
 Scene scene;
 
-default_random_engine generator;
-uniform_real_distribution<float> pix(-0.5f, 0.5f); // Need a better name for this
-uniform_real_distribution<float> hemisphere(0.0f, 1.0f); // Need a better name for this
+default_random_engine gen;
+uniform_real_distribution<float> pix(-0.5f, 0.5f);
+uniform_real_distribution<float> uniform01(0.0f, 1.0f);
+uniform_real_distribution<float> uniformAngle(0.0f, 2*M_PI);
 
 void buildScene(int i) {
-	Material mirrorMat = { Vec3(), 0.0f, Surface(reflective) };
-	Material diffuseMat = { Vec3(0.9f,0.9f,0.9f), 0.0f, Surface(diffuse) };
+	Material mirrorMat = { Vec3(1.0f), 0.0f, Surface(reflective) };
+	Material diffuseMat = { Vec3(0.8f,0.8f,0.8f), 0.0f, Surface(diffuse) };
 	Material redMat = { Vec3(0.95f,0.3f,0.3f), 0.0f, Surface(diffuse) };
 	Material greenMat = { Vec3(0.3f, 0.95f,0.3f), 0.0f, Surface(diffuse) };
 	Material specularMat = { Vec3(1.0f), 0.0f, Surface(specular) };
-	Material lightMat = { Vec3(), 260.0f, Surface(reflective) };
+	Material lightMat = { Vec3(), 2.0f, Surface(reflective) };
 	switch (i) {
 	default:
 		break;
 	case 0: // Plane
 		scene.addObject(new Plane(Vec3(0.0f, 2.05f, 0.0f), Vec3(0.0f, -1.0f, 0.0f)), diffuseMat);
-		scene.addObject(new Sphere(Vec3(2.0f, 1.0f, -4.0f), 0.8f), lightMat);
-		scene.addObject(new Sphere(Vec3(1.7f, 0.5f, -6.0f), 1.3f), specularMat);
+		//scene.addObject(new Sphere(Vec3(2.0f, 1.0f, -4.0f), 0.8f), lightMat);
+		scene.addObject(new Sphere(Vec3(1.7f, 0.5f, -4.0f), 1.3f), specularMat);
 		break;
-	case 1: // Cornell
+	case 1: // Cornell box
 		scene.addObject(new Plane(Vec3(0.0f, 0.0f, -800.0f), Vec3(0.0f, 0.0f, 1.0)), diffuseMat);
 		scene.addObject(new Plane(Vec3(0.0f, 0.0f, 800.0f), Vec3(0.0f, 0.0f, -1.0)), diffuseMat);
 		scene.addObject(new Plane(Vec3(0.0f, 800.0f, 0.0f), Vec3(0.0f, -1.0f, 0.0f)), diffuseMat);
-		scene.addObject(new Plane(Vec3(0.0f, -800.0f, 0.0f), Vec3(0.0f, 1.0f, 0.0)), lightMat);
+		scene.addObject(new Plane(Vec3(0.0f, -800.0f, 0.0f), Vec3(0.0f, 1.0f, 0.0)), diffuseMat);
 		scene.addObject(new Plane(Vec3(800.0f, 0.0f, 0.0f), Vec3(-1.0f, 0.0f, 0.0)), greenMat);
 		scene.addObject(new Plane(Vec3(-800.0f, 0.0f, 0.0f), Vec3(1.0f, 0.0f, 0.0)), redMat);
+		scene.addObject(new Box(Vec3(-200.0f, -800.0f, -500.0f), Vec3(200.0f, -750.0f, -100.0f)), lightMat);
+		break;
+	case 2: // Oven test
+		/*
+		* The oven test is any encosed room with surface emission 0.5 and reflectance 0.5. So we expect a pixel value
+		* 0.5*(0.5 + 0.5(0.5 + 0.5(...)) = 1.
+		*/
+		Material ovenMat = {Vec3(0.5f), 0.5f, Surface(diffuse)};
+		scene.addObject(new Plane(Vec3(0.0f, 0.0f, -800.0f), Vec3(0.0f, 0.0f, 1.0)), ovenMat);
+		scene.addObject(new Plane(Vec3(0.0f, 0.0f, 800.0f), Vec3(0.0f, 0.0f, -1.0)), ovenMat);
+		scene.addObject(new Plane(Vec3(0.0f, 800.0f, 0.0f), Vec3(0.0f, -1.0f, 0.0f)), ovenMat);
+		scene.addObject(new Plane(Vec3(0.0f, -800.0f, 0.0f), Vec3(0.0f, 1.0f, 0.0)), ovenMat);
+		scene.addObject(new Plane(Vec3(800.0f, 0.0f, 0.0f), Vec3(-1.0f, 0.0f, 0.0)), ovenMat);
+		scene.addObject(new Plane(Vec3(-800.0f, 0.0f, 0.0f), Vec3(1.0f, 0.0f, 0.0)), ovenMat);
 		break;
 	}
 	//scene.addObject(new Box(Vec3(1.0f, 1.0f, -3.0f), Vec3(1.0f, 1.0f, -3.0f) + Vec3(1.0f, 1.0f, 0.0f)), diffuseMat);
@@ -146,12 +156,19 @@ void cameraRay(float px, float py, Ray& ray) {
 	//return Ray(Vec3(), Vec3(x, y, z));
 }
 
-Vec3 sampleHemisphere() {
-	float u1 = hemisphere(generator);
-	float u2 = hemisphere(generator);
-	float r = sqrt(1.0f - u1 * u1);
-	float phi = u2 * M_PI * 2.0f;
-	return Vec3(cos(phi)*r, sin(phi)*r, u1);
+Vec3 cosineSampleHemisphere() {
+	float r_sqr = uniform01(gen);
+	float phi = uniformAngle(gen);
+	float r = sqrt(r_sqr);
+	float x = cos(phi)*r;
+	float y = sin(phi)*r;
+	return Vec3(x, y, sqrt(1.0f - x*x - y*y));
+}
+Vec3 uniformSampleHemisphere() {
+	float z = uniform01(gen);
+	float theta = uniformAngle(gen);
+	float r = sqrt(1.0f-z*z);
+	return Vec3(cos(theta)*r, sin(theta)*r, z);
 }
 
 float shlickApprox(float r, float R0, float cos_t2) {
@@ -182,13 +199,13 @@ Vec3 rayTrace(Ray& ray, int depth) {
 
 			ray.d = (ray.d - (n * cos_t * 2.0f)).normalized();
 			color = color + emission * attenuation;
+			attenuation = attenuation * obj->material.albedo;
 		} else if (obj->material.surface == diffuse) {
-			// This line is optimizable since the vector to rotate is constant
 			Matrix3 rotMatrix = rotMatrixVectors(n, Vec3(0.0f, 0.0f, 1.0f));
-			ray.d = rotMatrix * sampleHemisphere();
+			ray.d = rotMatrix * cosineSampleHemisphere();
 			float cos_t = ray.d.dot(n);
 			color = color + emission * attenuation;
-			attenuation = attenuation * obj->material.albedo* cos_t;
+			attenuation = attenuation * obj->material.albedo; // * pi (Surface area) / (pi (lambertian albedo constant))
 		} else if (obj->material.surface == specular) {
 			float r = 1.0f / 1.3f;
 			float cos_t1 = -n.dot(ray.d);
@@ -201,10 +218,11 @@ Vec3 rayTrace(Ray& ray, int depth) {
 			float R0 = (1.0f - 1.3f) / (1.0f + 1.3f);
 			R0 *= R0;
 			float cos_t2 = sqrt(1.0f - r * r*(1.0f - cos_t1 * cos_t1));
-			float R = shlickApprox(r, R0, cos_t2);
-			if (1.0f > r * r*(1.0f - cos_t1 * cos_t1) && hemisphere(generator) > R) {
+
+			// Check critical angle, then choose refraction based on fresnel
+			if (1.0f - r * r*(1.0f - cos_t1 * cos_t1) > 0.0f && uniform01(gen) > shlickApprox(r, R0, cos_t2)) {
 				// Refraction through the specular surface
-				ray.d = (r*ray.d + (r*cos_t1 - cos_t2)*n).normalized();
+				ray.d = (r*ray.d + (r*cos_t1 - cos_t2)*n);
 			} else {
 				// Reflection off the specular surface
 				ray.d = (ray.d - (n * cos_t1 * 2)).normalized();
@@ -212,7 +230,7 @@ Vec3 rayTrace(Ray& ray, int depth) {
 			color = color + emission * attenuation;
 			attenuation = attenuation * obj->material.albedo;
 		}
-		if (hemisphere(generator) > BOUNCE_PROB) {
+		if (uniform01(gen) > BOUNCE_PROB) {
 			break;
 		}
 		attenuation = attenuation / BOUNCE_PROB;
@@ -220,7 +238,7 @@ Vec3 rayTrace(Ray& ray, int depth) {
 	return color;
 }
 
-void draw(array<array<Vec3, WIDTH>, HEIGHT> *img) {
+void render(array<array<Vec3, WIDTH>, HEIGHT> *img) {
 	auto t1 = chrono::high_resolution_clock::now();
 
 	#pragma omp parallel for schedule(dynamic) num_threads(2)
@@ -229,13 +247,14 @@ void draw(array<array<Vec3, WIDTH>, HEIGHT> *img) {
 			Ray ray = Ray(Vec3(), Vec3());
 			Vec3 colorVec = Vec3();
 			for (int sample = 0; sample < SAMPLES_PER_PIXEL; sample++) {
-				cameraRay(px + pix(generator), py + pix(generator), ray);
+				cameraRay(px + pix(gen), py + pix(gen), ray);
 				colorVec = colorVec + rayTrace(ray, MAX_BOUNCES);
 			}
 			(*img)[py][px] = colorVec / SAMPLES_PER_PIXEL;
 		}
 	}
 
+	// Performance metrics
 	float seconds = (chrono::duration_cast<std::chrono::microseconds>(chrono::high_resolution_clock::now() - t1).count() / 1000000.0);
 	cout << "Took " + to_string(seconds) + "s\n";
 	cout << "Cast " << SAMPLES_PER_PIXEL * WIDTH*HEIGHT << " rays\n";
@@ -246,13 +265,16 @@ void draw(array<array<Vec3, WIDTH>, HEIGHT> *img) {
 void toneMap(array<array<Vec3, WIDTH>, HEIGHT> *img) {
 	for (int py = 0; py < HEIGHT; py++) {
 		for (int px = 0; px < WIDTH; px++) {
-			(*img)[py][px] = 255.0f*Vec3(sqrt((*img)[py][px].x/255.0f), sqrt((*img)[py][px].y / 255.0f), sqrt((*img)[py][px].z / 255.0f));
+			(*img)[py][px] = Vec3(sqrt((*img)[py][px].x), sqrt((*img)[py][px].y), sqrt((*img)[py][px].z));
 		}
 	}
 }
 
+
 string getDateTime() {
-	time_t t = time(0);   // get time now
+	// get the current time
+	time_t t = time(0);
+
 	tm now;
 	localtime_s(&now, &t);
 	string s = to_string(now.tm_year + 1900)
@@ -274,13 +296,15 @@ int main() {
 	//cout << "Choose scene (0-" << MAX_SCENES << "): ";
 	//int sceneIndex = 0;
 	//cin >> sceneIndex;
-	buildScene(1);
+	buildScene(ACTIVE_SCENE);
 
 	array<array<Vec3, WIDTH>, HEIGHT>* img = new array<array<Vec3, WIDTH>, HEIGHT>();
 	// Render scene
-	draw(img);
+	render(img);
 
-	//// Tone map resulting image
+
+
+	// Tone map resulting image
 	toneMap(img);
 
 	sf::Image image;
@@ -288,10 +312,9 @@ int main() {
 	// Load image
 	for (int py = 0; py < HEIGHT; py++) {
 		for (int px = 0; px < WIDTH; px++) {
-			image.setPixel(px, py, (*img)[py][px].toColor());
+			image.setPixel(px, py, (*img)[py][px].tosRGB());
 		}
 	}
-	delete img;
 
 	// Init texture
 	sf::RenderWindow window(sf::VideoMode(WIDTH, HEIGHT), "Ray tracer");
@@ -300,6 +323,7 @@ int main() {
 	texture.loadFromImage(image);
 	sprite.setTexture(texture);
 
+	ofstream ofile;
 	while (window.isOpen())
 	{
 		sf::Event event;
@@ -312,8 +336,20 @@ int main() {
 			case sf::Event::KeyPressed:
 				switch (event.key.code) {
 				case sf::Keyboard::S:
-					if (image.saveToFile(".\\renders\\render" + getDateTime() + ".png"))
-						cout << "Render saved" << endl;
+					cout << "Saving render" << endl;
+
+					image.saveToFile(".\\renders\\render" + getDateTime() + ".png");
+					ofile.open(".\\renders\\renderData" + getDateTime() + ".txt");
+					for (int py = 0; py < HEIGHT; py++) {
+						for (int px = 0; px < WIDTH; px++) {
+							Vec3 v = (*img)[py][px];
+							ofile << (int)v.x << ',' << (int)v.y << ',' << (int)v.z << ' ';
+						}
+						ofile << endl;
+					}
+					ofile.close();
+
+					cout << "Render saved" << endl;
 					break;
 				case sf::Keyboard::Escape:
 					window.close();
@@ -333,6 +369,6 @@ int main() {
 
 		window.display();
 	}
-	
+	delete img;
 	return 0;
 }

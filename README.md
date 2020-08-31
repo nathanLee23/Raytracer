@@ -20,23 +20,21 @@ A toy raytracer for learning.
 - Specular refractive index fix
 
 ### Raycasting improvements
-~~- Implement AABB~~
+- ~~Implement AABB~~
 - BVH acceleration (see PBRT book)
 - Optimization for shadow rays (early termination by stopping on any found intersection between 2 points)
 - Improve self intersection handling (see raytracing gems)
 
 ### Variance reduction
-~~- Russian roulette~~
-- Metropolis-Hastings (Metropolis Light Transport or Energy redistribution path tracing)
+- ~~Russian roulette~~
 - Hemisphere sampling
 - Multiple importance sampling
+- Metropolis-Hastings (Metropolis Light Transport or Energy redistribution path tracing)
 
 ### CUDA
 - Use small kernels over a singular megakernel (see jacco blog)
-- Data oriented design (DOD) such that all materials and geometric primitives are be processed in their own array
+- Data oriented design (DOD) such that all the attributes of a certain types are arrays
 - CUDA SIMD intrinsics for even more speed
 
 ### Misc. Optimization
 - Test Vec4
-- Investigate using plane reflection to generate rotated hemisphere over rotation matrices. Branching can be avoided by being clever
-- Precomputing rotation matrix since the second Vec is a constant (0,0,1)

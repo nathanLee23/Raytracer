@@ -34,15 +34,20 @@ Vec3 Vec3::proj(Vec3 a) {
 	return dot(a) / sqrNorm() * (*this);
 }
 
-float tosRGB(float x) {
+float correctGamma(float x) {
 	if (x <= 0.0031308f) {
 		return 12.92f * x;
 	} else {
 		return 1.055f * powf(x, 1 / 2.4) - 0.055;
 	}
 }
+
 sf::Color Vec3::tosRGB() {
-	return sf::Color(255.0f*min(1.0f, x), 255.0f*min(1.0f, y), 255.0f*min(1.0f, z));
+	return sf::Color(
+		255.0f*correctGamma(min(1.0f, x)),
+		255.0f*correctGamma(min(1.0f, y)),
+		255.0f*correctGamma(min(1.0f, z))
+	);
 }
 float Vec3::operator[] (int i) {
 	switch (i) {

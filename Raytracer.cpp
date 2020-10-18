@@ -25,12 +25,12 @@
 
 #define WIDTH 1000
 #define HEIGHT 1000
-#define FOVX (120.0f/180.0f*M_PI/2.0f)
+#define FOVX 120.0f
 #define ACTIVE_SCENE 1
 
 #define AMBIENT 1.0f
 #define MAX_BOUNCES 7
-#define SAMPLES_PER_PIXEL 50
+#define SAMPLES_PER_PIXEL 10
 #define BOUNCE_PROB 0.6f
 #define HEMISPHERE_AREA (M_PI*2.0f)
 
@@ -97,11 +97,11 @@ uniform_real_distribution<float> uniformAngle(0.0f, 2*M_PI);
 
 void buildScene(int i) {
 	Material mirrorMat = { Vec3(1.0f), 0.0f, Surface(reflective) };
-	Material diffuseMat = { Vec3(0.8f,0.8f,0.8f), 0.0f, Surface(diffuse) };
-	Material redMat = { Vec3(0.95f,0.3f,0.3f), 0.0f, Surface(diffuse) };
-	Material greenMat = { Vec3(0.3f, 0.95f,0.3f), 0.0f, Surface(diffuse) };
+	Material diffuseMat = { Vec3(0.73f, 0.73f, 0.73f), 0.0f, Surface(diffuse) };
+	Material redMat = { Vec3(0.65f, 0.05f, 0.05f), 0.0f, Surface(diffuse) };
+	Material greenMat = { Vec3(0.12f, 0.45f, 0.15f), 0.0f, Surface(diffuse) };
 	Material specularMat = { Vec3(1.0f), 0.0f, Surface(specular) };
-	Material lightMat = { Vec3(), 2.0f, Surface(reflective) };
+	Material lightMat = { Vec3(), 1.0f, Surface(reflective) };
 	switch (i) {
 	default:
 		break;
@@ -117,6 +117,10 @@ void buildScene(int i) {
 		scene.addObject(new Plane(Vec3(0.0f, -800.0f, 0.0f), Vec3(0.0f, 1.0f, 0.0)), diffuseMat);
 		scene.addObject(new Plane(Vec3(800.0f, 0.0f, 0.0f), Vec3(-1.0f, 0.0f, 0.0)), greenMat);
 		scene.addObject(new Plane(Vec3(-800.0f, 0.0f, 0.0f), Vec3(1.0f, 0.0f, 0.0)), redMat);
+
+		scene.addObject(new Box(Vec3(-600.0f, 400.0f, -600.0f), Vec3(-500.0f, 800.0f, -500.0f)), diffuseMat);
+		//scene.addObject(new Box(Vec3(-200.0f, -800.0f, -500.0f), Vec3(200.0f, -750.0f, -100.0f)), diffuseMat);
+
 		scene.addObject(new Box(Vec3(-200.0f, -800.0f, -500.0f), Vec3(200.0f, -750.0f, -100.0f)), lightMat);
 		break;
 	case 2: // Oven test
@@ -146,9 +150,9 @@ void buildScene(int i) {
 // Transform pixel coordinates to perspective rays
 // Camera is at (0,0,0) facing (0,0,-1)
 void cameraRay(float px, float py, Ray& ray) {
-	float x = (2.0f * px - WIDTH) / WIDTH * tan(FOVX);
+	float x = (2.0f * px - WIDTH) / WIDTH * tan(FOVX * M_PI / 180.0f / 2.0f);
 	// Can make the tan computation constant
-	float y = (2.0f * py - HEIGHT) / HEIGHT * tan(((float) HEIGHT) / WIDTH * FOVX);
+	float y = (2.0f * py - HEIGHT) / HEIGHT * tan(((float) HEIGHT) / WIDTH * FOVX * M_PI / 180.0f / 2.0f);
 	float z = -1.0f;
 	ray.o = Vec3();
 	ray.d = Vec3(x,y,z).normalized();
@@ -258,16 +262,16 @@ void render(array<array<Vec3, WIDTH>, HEIGHT> *img) {
 	float seconds = (chrono::duration_cast<std::chrono::microseconds>(chrono::high_resolution_clock::now() - t1).count() / 1000000.0);
 	cout << "Took " + to_string(seconds) + "s\n";
 	cout << "Cast " << SAMPLES_PER_PIXEL * WIDTH*HEIGHT << " rays\n";
-	cout << SAMPLES_PER_PIXEL * WIDTH*HEIGHT / seconds << " rays per second \n";
+	cout << SAMPLES_PER_PIXEL * WIDTH*HEIGHT * (BOUNCE_PROB / (1.0f - BOUNCE_PROB) + 1) / seconds << " rays per second \n";
 	cout << "Average bounces: " << BOUNCE_PROB/(1.0f - BOUNCE_PROB) << endl;
 }
 
 void toneMap(array<array<Vec3, WIDTH>, HEIGHT> *img) {
-	for (int py = 0; py < HEIGHT; py++) {
-		for (int px = 0; px < WIDTH; px++) {
-			(*img)[py][px] = Vec3(sqrt((*img)[py][px].x), sqrt((*img)[py][px].y), sqrt((*img)[py][px].z));
-		}
-	}
+	//for (int py = 0; py < HEIGHT; py++) {
+	//	for (int px = 0; px < WIDTH; px++) {
+	//		(*img)[py][px] = Vec3(sqrt((*img)[py][px].x), sqrt((*img)[py][px].y), sqrt((*img)[py][px].z));
+	//	}
+	//}
 }
 
 

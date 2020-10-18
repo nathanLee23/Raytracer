@@ -15,6 +15,7 @@ A toy raytracer for learning.
 - Skybox
 - Movable camera preview to get good camera angles and positioning before rendering
 - Spectral rendering
+- alias tables for O(1) sampling
 
 ### Bugs
 - Specular refractive index fix
@@ -27,7 +28,7 @@ A toy raytracer for learning.
 
 ### Variance reduction
 - ~~Russian roulette~~
-- Hemisphere sampling
+- ~~Hemisphere sampling~~
 - Multiple importance sampling
 - Metropolis-Hastings (Metropolis Light Transport or Energy redistribution path tracing)
 

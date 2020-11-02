@@ -24,10 +24,10 @@ A toy raytracer for learning.
 - ~~Implement AABB~~
 - BVH acceleration (see PBRT book)
 - Optimization for shadow rays (early termination by stopping on any found intersection between 2 points)
-- Improve self intersection handling (see raytracing gems)
 
 ### Variance reduction
 - ~~Russian roulette~~
+  - Brightness based russian roulette
 - ~~Hemisphere sampling~~
 - Multiple importance sampling
 - Metropolis-Hastings (Metropolis Light Transport or Energy redistribution path tracing)

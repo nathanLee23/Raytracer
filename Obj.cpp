@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <random>
 #include <cmath>
 
 #include "Obj.h"
@@ -40,7 +41,6 @@ float Box::intersect(Ray& ray) {
 }
 
 Vec3 Box::normal(Vec3 p) {
-	p = -p;
 	Vec3 c = (max + min) / 2.0f;
 	Vec3 cToP = p - c;
 
@@ -58,7 +58,18 @@ Vec3 Box::normal(Vec3 p) {
 		(argMax == 2) * sgn(cToP.z)
 	);
 }
-
+std::uniform_real_distribution<float> eta(0,1);
+std::uniform_int_distribution<float> eta(0, 5);
+Vec3 Box::samplePoint(std::mt19937 gen) {
+	eta(gen);
+	return Vec3();
+}
+Vec3 Plane::samplePoint(std::mt19937 gen) {
+	return Vec3();
+}
+Vec3 Sphere::samplePoint(std::mt19937 gen) {
+	return Vec3();
+}
 Plane::Plane(Vec3 a, Vec3 _n) {
 	n = _n.normalized();
 	k = n.dot(a);

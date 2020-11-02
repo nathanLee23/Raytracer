@@ -43,7 +43,6 @@ The BVH is a static tree which might be optimizable.
 The BVH being static could be made into an array which is likely faster. See PBRT book
 - Shadow rays, operate on a line segment, if ANY intersection is found between the 2 points then that is sufficient and you can early terminate,
 - Light rays must find the closest point of interesction so all points must be investigated.
-Research self intersection in raytracing gems
 
 Hard
 See jacco blog for kernel optimization (use small kernels over a singular megakernel).
@@ -90,11 +89,11 @@ public:
 
 Scene scene;
 
-default_random_engine gen;
+mt19937 gen;
 uniform_real_distribution<float> pix(-0.5f, 0.5f);
 uniform_real_distribution<float> uniform01(0.0f, 1.0f);
 uniform_real_distribution<float> uniformAngle(0.0f, 2*M_PI);
-
+Obj *light = NULL;
 void buildScene(int i) {
 	Material mirrorMat = { Vec3(1.0f), 0.0f, Surface(reflective) };
 	Material diffuseMat = { Vec3(0.73f, 0.73f, 0.73f), 0.0f, Surface(diffuse) };
@@ -118,10 +117,12 @@ void buildScene(int i) {
 		scene.addObject(new Plane(Vec3(800.0f, 0.0f, 0.0f), Vec3(-1.0f, 0.0f, 0.0)), greenMat);
 		scene.addObject(new Plane(Vec3(-800.0f, 0.0f, 0.0f), Vec3(1.0f, 0.0f, 0.0)), redMat);
 
-		scene.addObject(new Box(Vec3(-600.0f, 400.0f, -600.0f), Vec3(-500.0f, 800.0f, -500.0f)), diffuseMat);
+		scene.addObject(new Box(Vec3(-600.0f, 400.0f, -600.0f), Vec3(-400.0f, 800.0f, -400.0f)), specularMat);
+		//scene.addObject(new Sphere(Vec3(400.0f, 440.0f, -600.0f), 200.3f), specularMat);
 		//scene.addObject(new Box(Vec3(-200.0f, -800.0f, -500.0f), Vec3(200.0f, -750.0f, -100.0f)), diffuseMat);
 
 		scene.addObject(new Box(Vec3(-200.0f, -800.0f, -500.0f), Vec3(200.0f, -750.0f, -100.0f)), lightMat);
+		light = scene.objs.back();
 		break;
 	case 2: // Oven test
 		/*
@@ -151,7 +152,7 @@ void buildScene(int i) {
 // Camera is at (0,0,0) facing (0,0,-1)
 void cameraRay(float px, float py, Ray& ray) {
 	float x = (2.0f * px - WIDTH) / WIDTH * tan(FOVX * M_PI / 180.0f / 2.0f);
-	// Can make the tan computation constant
+	// https://computergraphics.stackexchange.com/questions/8479/how-to-calculate-ray
 	float y = (2.0f * py - HEIGHT) / HEIGHT * tan(((float) HEIGHT) / WIDTH * FOVX * M_PI / 180.0f / 2.0f);
 	float z = -1.0f;
 	ray.o = Vec3();
@@ -175,8 +176,11 @@ Vec3 uniformSampleHemisphere() {
 	return Vec3(cos(theta)*r, sin(theta)*r, z);
 }
 
-float shlickApprox(float r, float R0, float cos_t2) {
-	float x = 1.0f - cos_t2;
+// cos_t is the dot product of the normal and the incident vectors
+float schlickApprox(float r, float cos_t) {
+	float R0 = (r - 1.0f) / (r + 1.0f);
+	R0 *= R0;
+	float x = 1.0f - cos_t;
 	float x2 = x * x;
 	return R0 + (1.0f - R0)*x2*x2*x;
 }
@@ -211,25 +215,27 @@ Vec3 rayTrace(Ray& ray, int depth) {
 			color = color + emission * attenuation;
 			attenuation = attenuation * obj->material.albedo; // * pi (Surface area) / (pi (lambertian albedo constant))
 		} else if (obj->material.surface == specular) {
-			float r = 1.0f / 1.3f;
+			float r = 1.0f / 1.5f;
 			float cos_t1 = -n.dot(ray.d);
+			/*
+			TODO: The schlick approximation has significantly worse accuracy when n2 > n1. 
+			This can be fixed by using cos_t2 in the schlick appprox (t2 being the angle between the refraction and the incident ray) instead
+			*/
 			if (cos_t1 < 0.0f) {
 				// We're inside the specular object
-				r = 1 / r;
 				cos_t1 *= -1;
+				r = 1.0f / r;
 				n = -n;
 			}
-			float R0 = (1.0f - 1.3f) / (1.0f + 1.3f);
-			R0 *= R0;
-			float cos_t2 = sqrt(1.0f - r * r*(1.0f - cos_t1 * cos_t1));
 
 			// Check critical angle, then choose refraction based on fresnel
-			if (1.0f - r * r*(1.0f - cos_t1 * cos_t1) > 0.0f && uniform01(gen) > shlickApprox(r, R0, cos_t2)) {
+			if (1.0f - r * r*(1.0f - cos_t1 * cos_t1) > 0.0f && uniform01(gen) > schlickApprox(r, cos_t1)) {
 				// Refraction through the specular surface
-				ray.d = (r*ray.d + (r*cos_t1 - cos_t2)*n);
+				float cos_t2 = sqrt(1.0f - r * r*(1.0f - cos_t1 * cos_t1));
+				ray.d = (r*ray.d + (r*cos_t1 - cos_t2)*n).normalized();
 			} else {
 				// Reflection off the specular surface
-				ray.d = (ray.d - (n * cos_t1 * 2)).normalized();
+				ray.d = (ray.d + (n * cos_t1 * 2)).normalized();
 			}
 			color = color + emission * attenuation;
 			attenuation = attenuation * obj->material.albedo;

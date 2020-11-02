@@ -1,4 +1,6 @@
 #pragma once
+#include <random>
+
 #include "Vec3.h"
 #include "Ray.h"
 #include "Material.h"
@@ -13,6 +15,7 @@ public:
 
 	// If p is a point on the object normal() returns the normalized normal of the object at the point
 	virtual Vec3 normal(Vec3 p) = 0;
+	virtual Vec3 samplePoint(std::mt19937 gen) = 0;
 };
 
 class Box : public Obj {
@@ -23,6 +26,7 @@ public:
 	Box(Vec3 min, Vec3 max);
 	float intersect(Ray& ray);
 	Vec3 normal(Vec3 p);
+	Vec3 samplePoint(std::mt19937 gen);
 };
 
 class Plane : public Obj {
@@ -33,6 +37,7 @@ public:
 	Plane(Vec3 a, Vec3 n);
 	float intersect(Ray& ray);
 	Vec3 normal(Vec3 p);
+	Vec3 samplePoint(std::mt19937 gen);
 };
 
 class Sphere : public Obj {
@@ -43,4 +48,5 @@ public:
 	Sphere(Vec3 c, float r);
 	float intersect(Ray& ray);
 	Vec3 normal(Vec3 p);
+	Vec3 samplePoint(std::mt19937 gen);
 };

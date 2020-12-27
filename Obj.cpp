@@ -59,10 +59,13 @@ Vec3 Box::normal(Vec3 p) {
 	);
 }
 std::uniform_real_distribution<float> eta(0,1);
-std::uniform_int_distribution<float> eta(0, 5);
+std::uniform_int_distribution<int> side(0, 5);
 Vec3 Box::samplePoint(std::mt19937 gen) {
-	eta(gen);
-	return Vec3();
+
+	std::uniform_real_distribution<float> rx(min.x, max.x);
+	std::uniform_real_distribution<float> rz(min.z, max.z);
+	
+	return Vec3(rx(gen), max.y, rz(gen));
 }
 Vec3 Plane::samplePoint(std::mt19937 gen) {
 	return Vec3();

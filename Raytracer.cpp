@@ -28,29 +28,20 @@
 #define FOVX 120.0f
 #define ACTIVE_SCENE 1
 
-#define AMBIENT 1.0f
+#define AMBIENT 0.3f
 #define MAX_BOUNCES 7
-#define SAMPLES_PER_PIXEL 10
-#define BOUNCE_PROB 0.6f
+#define SAMPLES_PER_PIXEL 80
+#define BOUNCE_PROB 0.8f
 #define HEMISPHERE_AREA (M_PI*2.0f)
 
 /*
-Easy
-Try Vec4
-
-Medium
-The BVH is a static tree which might be optimizable.
-The BVH being static could be made into an array which is likely faster. See PBRT book
-- Shadow rays, operate on a line segment, if ANY intersection is found between the 2 points then that is sufficient and you can early terminate,
-- Light rays must find the closest point of interesction so all points must be investigated.
-
-Hard
-See jacco blog for kernel optimization (use small kernels over a singular megakernel).
-Data oriented design (DOD), means that we should not use OOP and instead store each type of 'object' in their own array which reduces branching and improves
-memory locality. This means all materials and geometric primitives should be processed in their own array.
-Could use CUDA SIMD intrinsics for even more speed.
-Metropolis-Hastings
-Multiple importance sampling
+Things to try to remove noise
+- Implement brightness based russian roulette
+- better self intersection handling
+- Investigate better light handling
+  - Black body light? (basically just stop when the ray hits it)
+  - Why does specular lighting cause noise?
+  - Why does diffuse lighting make the light appear dark?
 */
 
 using namespace std;
@@ -85,6 +76,7 @@ public:
 		return {minT, hitObj};
 	}
 
+
 };
 
 Scene scene;
@@ -100,7 +92,10 @@ void buildScene(int i) {
 	Material redMat = { Vec3(0.65f, 0.05f, 0.05f), 0.0f, Surface(diffuse) };
 	Material greenMat = { Vec3(0.12f, 0.45f, 0.15f), 0.0f, Surface(diffuse) };
 	Material specularMat = { Vec3(1.0f), 0.0f, Surface(specular) };
-	Material lightMat = { Vec3(), 1.0f, Surface(reflective) };
+
+	// Using specular light sauces creates a lot of noise
+	Material lightMat = { Vec3(2.0f), 1.0f, Surface(reflective) };
+	Material ovenMat = { Vec3(0.5f), 0.5f, Surface(diffuse) };
 	switch (i) {
 	default:
 		break;
@@ -108,6 +103,7 @@ void buildScene(int i) {
 		scene.addObject(new Plane(Vec3(0.0f, 2.05f, 0.0f), Vec3(0.0f, -1.0f, 0.0f)), diffuseMat);
 		//scene.addObject(new Sphere(Vec3(2.0f, 1.0f, -4.0f), 0.8f), lightMat);
 		scene.addObject(new Sphere(Vec3(1.7f, 0.5f, -4.0f), 1.3f), specularMat);
+		scene.addObject(new Box(Vec3(-1.4f, 0.5f, -3.0f), Vec3(-0.4f, 1.5f, -2.0f)), specularMat);
 		break;
 	case 1: // Cornell box
 		scene.addObject(new Plane(Vec3(0.0f, 0.0f, -800.0f), Vec3(0.0f, 0.0f, 1.0)), diffuseMat);
@@ -118,10 +114,10 @@ void buildScene(int i) {
 		scene.addObject(new Plane(Vec3(-800.0f, 0.0f, 0.0f), Vec3(1.0f, 0.0f, 0.0)), redMat);
 
 		scene.addObject(new Box(Vec3(-600.0f, 400.0f, -600.0f), Vec3(-400.0f, 800.0f, -400.0f)), specularMat);
-		//scene.addObject(new Sphere(Vec3(400.0f, 440.0f, -600.0f), 200.3f), specularMat);
+		scene.addObject(new Sphere(Vec3(400.0f, 440.0f, -600.0f), 200.3f), specularMat);
 		//scene.addObject(new Box(Vec3(-200.0f, -800.0f, -500.0f), Vec3(200.0f, -750.0f, -100.0f)), diffuseMat);
 
-		scene.addObject(new Box(Vec3(-200.0f, -800.0f, -500.0f), Vec3(200.0f, -750.0f, -100.0f)), lightMat);
+		scene.addObject(new Box(Vec3(-200.0f, -800.0f, -500.0f), Vec3(200.0f, /*-795.0f*/ -799.9f, -100.0f)), lightMat);
 		light = scene.objs.back();
 		break;
 	case 2: // Oven test
@@ -129,7 +125,6 @@ void buildScene(int i) {
 		* The oven test is any encosed room with surface emission 0.5 and reflectance 0.5. So we expect a pixel value
 		* 0.5*(0.5 + 0.5(0.5 + 0.5(...)) = 1.
 		*/
-		Material ovenMat = {Vec3(0.5f), 0.5f, Surface(diffuse)};
 		scene.addObject(new Plane(Vec3(0.0f, 0.0f, -800.0f), Vec3(0.0f, 0.0f, 1.0)), ovenMat);
 		scene.addObject(new Plane(Vec3(0.0f, 0.0f, 800.0f), Vec3(0.0f, 0.0f, -1.0)), ovenMat);
 		scene.addObject(new Plane(Vec3(0.0f, 800.0f, 0.0f), Vec3(0.0f, -1.0f, 0.0f)), ovenMat);
@@ -185,16 +180,29 @@ float schlickApprox(float r, float cos_t) {
 	return R0 + (1.0f - R0)*x2*x2*x;
 }
 
+int c = 0;
 Vec3 rayTrace(Ray& ray, int depth) {
 	Vec3 attenuation = Vec3(1.0f);
 	Vec3 color = Vec3(0.0f);
+	Obj *last = NULL;
+	int i = 0;
+
+	float mis_brdf_pdf = -1.0f; // Negative when mis was not used
 	while (true) {
 		Intersection intersection = scene.castRay(ray);
+		
+		//TODO: Weigh this by MIS
 		if (isinf(intersection.t)) {
-			color = color + attenuation*Vec3(AMBIENT);
+			float a = ray.d.dot(Vec3(0.2, -0.8, -0.4).normalized());
+			if (a > 0.999) {
+
+				color = color + attenuation*Vec3(5);
+			} else if (a > 0.96) {
+				color = color + attenuation*Vec3(5)*(a-0.96f)*(a - 0.96f)/ (0.999f - 0.96f) /(0.999f-0.96f);
+			}
+			color = color + attenuation*Vec3(0.5,0.70,0.8);
 			break;
 		}
-
 		Vec3 hp = intersection.t*ray.d + ray.o;
 		ray.o = hp;
 
@@ -202,25 +210,55 @@ Vec3 rayTrace(Ray& ray, int depth) {
 		Vec3 n = obj->normal(hp);
 		Vec3 emission = Vec3(obj->material.emission);
 
+		if (emission.x > 0.0f) { // TODO USE vector max
+			if (mis_brdf_pdf > 0.0f) {
+				float solidAngle = abs(-ray.d.dot(obj->normal(hp))) * 400 * 400 / intersection.t / intersection.t;
+				color = color + (obj->material.emission)*attenuation*
+					mis_brdf_pdf * mis_brdf_pdf / (1 / solidAngle / solidAngle + mis_brdf_pdf * mis_brdf_pdf);
+			} else {
+				color = color + emission * attenuation;
+			}
+		}
 		if (obj->material.surface == reflective) {
 			float cos_t = ray.d.dot(n);
 
 			ray.d = (ray.d - (n * cos_t * 2.0f)).normalized();
-			color = color + emission * attenuation;
 			attenuation = attenuation * obj->material.albedo;
+			mis_brdf_pdf = -1.0f;
 		} else if (obj->material.surface == diffuse) {
+			float pl = 1.0f / 400.0f / 400.0f;
+			if (light != obj) {
+				Vec3 sampledLight = light->samplePoint(gen);
+				ray.d = (sampledLight - ray.o).normalized();
+				Intersection v = scene.castRay(ray);
+				if ( light == v.hitObj) {
+					float solidAngle = abs(-ray.d.dot(v.hitObj->normal(ray.o + v.t*ray.d)))/pl / v.t / v.t;
+
+					//float pl = solidAngle * 1200.0f * 400.0f;
+					// Gotta MIS this
+					color = color + light->material.emission * attenuation * obj->material.albedo / M_PI * abs(n.dot(ray.d)) *
+						1 / solidAngle /( 1/solidAngle/solidAngle + abs(ray.d.dot(n))/M_PI* abs(ray.d.dot(n)) / M_PI);
+				}
+			}
+			//color = color + emission * attenuation;
 			Matrix3 rotMatrix = rotMatrixVectors(n, Vec3(0.0f, 0.0f, 1.0f));
 			ray.d = rotMatrix * cosineSampleHemisphere();
-			float cos_t = ray.d.dot(n);
-			color = color + emission * attenuation;
-			attenuation = attenuation * obj->material.albedo; // * pi (Surface area) / (pi (lambertian albedo constant))
+			float cos_t = abs(ray.d.dot(n));
+			mis_brdf_pdf = cos_t / M_PI;
+
+			//float solidAngle = 0.0;
+			//intersection = scene.castRay(ray);
+			//if (intersection.hitObj == light) {
+			//	//return color;
+			//	
+			//	solidAngle = abs(-ray.d.dot(intersection.hitObj->normal(ray.o + intersection.t*ray.d))) * 400 * 400 / intersection.t / intersection.t;
+			//	color = color + (intersection.hitObj->material.emission)*attenuation*obj->material.albedo*
+			//		cos_t/M_PI * cos_t / M_PI /(1/solidAngle/solidAngle + cos_t/M_PI* cos_t / M_PI);
+			//}
+			attenuation = attenuation * obj->material.albedo;/**cos_t/(cos_t/M_PI )*/ // * pi (Surface area) / (pi (lambertian albedo constant))
 		} else if (obj->material.surface == specular) {
 			float r = 1.0f / 1.5f;
 			float cos_t1 = -n.dot(ray.d);
-			/*
-			TODO: The schlick approximation has significantly worse accuracy when n2 > n1. 
-			This can be fixed by using cos_t2 in the schlick appprox (t2 being the angle between the refraction and the incident ray) instead
-			*/
 			if (cos_t1 < 0.0f) {
 				// We're inside the specular object
 				cos_t1 *= -1;
@@ -228,8 +266,11 @@ Vec3 rayTrace(Ray& ray, int depth) {
 				n = -n;
 			}
 
-			// Check critical angle, then choose refraction based on fresnel
-			if (1.0f - r * r*(1.0f - cos_t1 * cos_t1) > 0.0f && uniform01(gen) > schlickApprox(r, cos_t1)) {
+			// Check for total internal reflection, then choose refraction based on fresnel
+
+			//TODO: See how much slower computing the real fresnel reflectance is. (will be twice as likely to call sqrt() than usual, but will be more accurate)
+			if (1.0f - r * r*(1.0f - cos_t1 * cos_t1) > 0.0f &&
+				uniform01(gen) > ((r > 1.0f) ? schlickApprox(r, cos_t1) : schlickApprox(r, sqrt(1.0f - r * r*(1.0f - cos_t1 * cos_t1))))) {
 				// Refraction through the specular surface
 				float cos_t2 = sqrt(1.0f - r * r*(1.0f - cos_t1 * cos_t1));
 				ray.d = (r*ray.d + (r*cos_t1 - cos_t2)*n).normalized();
@@ -237,13 +278,19 @@ Vec3 rayTrace(Ray& ray, int depth) {
 				// Reflection off the specular surface
 				ray.d = (ray.d + (n * cos_t1 * 2)).normalized();
 			}
-			color = color + emission * attenuation;
 			attenuation = attenuation * obj->material.albedo;
+			mis_brdf_pdf = -1.0f;
 		}
+
+		// TODO: Move russian roulette
+		//if (i > 1) {
 		if (uniform01(gen) > BOUNCE_PROB) {
 			break;
 		}
 		attenuation = attenuation / BOUNCE_PROB;
+		i++;
+		c += last == obj;
+		last = obj;
 	}
 	return color;
 }
@@ -263,7 +310,7 @@ void render(array<array<Vec3, WIDTH>, HEIGHT> *img) {
 			(*img)[py][px] = colorVec / SAMPLES_PER_PIXEL;
 		}
 	}
-
+	cout << c << endl;
 	// Performance metrics
 	float seconds = (chrono::duration_cast<std::chrono::microseconds>(chrono::high_resolution_clock::now() - t1).count() / 1000000.0);
 	cout << "Took " + to_string(seconds) + "s\n";

@@ -3,6 +3,8 @@
 
 #include <iostream>
 #include <fstream>
+#include <thread>
+#include <functional>
 #include <string.h>
 #include <array>
 
@@ -29,8 +31,8 @@
 #define ACTIVE_SCENE 1
 
 #define AMBIENT 0.3f
-#define MAX_BOUNCES 7
-#define SAMPLES_PER_PIXEL 80
+#define MIN_BOUNCES 2
+#define SAMPLES_PER_PIXEL 1
 #define BOUNCE_PROB 0.8f
 #define HEMISPHERE_AREA (M_PI*2.0f)
 
@@ -44,8 +46,32 @@ Things to try to remove noise
   - Why does diffuse lighting make the light appear dark?
 */
 
+
+
 using namespace std;
 
+class Img {
+public:
+	array<array<Vec3, WIDTH>, HEIGHT> *pixels;
+	unsigned int sample_count;
+	Img() {
+		pixels = new array<array<Vec3, WIDTH>, HEIGHT>();
+		clear();
+	}
+	
+	void clear() {
+		for (int py = 0; py < HEIGHT; py++) {
+			for (int px = 0; px < WIDTH; px++) {
+				(*pixels)[py][px] = Vec3();
+			}
+		}
+		sample_count = 0;
+	}
+
+	void update(int px, int py, Vec3 color) {
+		(*pixels)[py][px] = ((*pixels)[py][px] * (float) (sample_count) + color) / ((float) (sample_count + 1));
+	}
+};
 struct Intersection {
 	float t;
 	Obj * hitObj;
@@ -94,7 +120,7 @@ void buildScene(int i) {
 	Material specularMat = { Vec3(1.0f), 0.0f, Surface(specular) };
 
 	// Using specular light sauces creates a lot of noise
-	Material lightMat = { Vec3(2.0f), 1.0f, Surface(reflective) };
+	Material lightMat = { Vec3(1.0f), 4.0f, Surface(reflective) };
 	Material ovenMat = { Vec3(0.5f), 0.5f, Surface(diffuse) };
 	switch (i) {
 	default:
@@ -181,12 +207,12 @@ float schlickApprox(float r, float cos_t) {
 }
 
 int c = 0;
-Vec3 rayTrace(Ray& ray, int depth) {
+Vec3 rayTrace(Ray& ray) {
 	Vec3 attenuation = Vec3(1.0f);
 	Vec3 color = Vec3(0.0f);
 	Obj *last = NULL;
-	int i = 0;
-
+	//int i = 0;
+	int a = 0;
 	float mis_brdf_pdf = -1.0f; // Negative when mis was not used
 	while (true) {
 		Intersection intersection = scene.castRay(ray);
@@ -203,6 +229,7 @@ Vec3 rayTrace(Ray& ray, int depth) {
 			color = color + attenuation*Vec3(0.5,0.70,0.8);
 			break;
 		}
+
 		Vec3 hp = intersection.t*ray.d + ray.o;
 		ray.o = hp;
 
@@ -210,15 +237,25 @@ Vec3 rayTrace(Ray& ray, int depth) {
 		Vec3 n = obj->normal(hp);
 		Vec3 emission = Vec3(obj->material.emission);
 
-		if (emission.x > 0.0f) { // TODO USE vector max
+		if (emission.max() > 0.0f) {
 			if (mis_brdf_pdf > 0.0f) {
 				float solidAngle = abs(-ray.d.dot(obj->normal(hp))) * 400 * 400 / intersection.t / intersection.t;
 				color = color + (obj->material.emission)*attenuation*
 					mis_brdf_pdf * mis_brdf_pdf / (1 / solidAngle / solidAngle + mis_brdf_pdf * mis_brdf_pdf);
+				
 			} else {
 				color = color + emission * attenuation;
 			}
 		}
+
+		// Some rays get eliminated before they can even do anything,
+		// So either try setting minimum bounces or rearranging some of the code
+		float bounce_probability = min(attenuation.max(), 0.9f);
+		if (uniform01(gen) > bounce_probability) {
+			break;
+		}
+		attenuation = attenuation / bounce_probability;
+
 		if (obj->material.surface == reflective) {
 			float cos_t = ray.d.dot(n);
 
@@ -227,15 +264,14 @@ Vec3 rayTrace(Ray& ray, int depth) {
 			mis_brdf_pdf = -1.0f;
 		} else if (obj->material.surface == diffuse) {
 			float pl = 1.0f / 400.0f / 400.0f;
-			if (light != obj) {
+			if (true && light != obj) {
 				Vec3 sampledLight = light->samplePoint(gen);
 				ray.d = (sampledLight - ray.o).normalized();
 				Intersection v = scene.castRay(ray);
 				if ( light == v.hitObj) {
 					float solidAngle = abs(-ray.d.dot(v.hitObj->normal(ray.o + v.t*ray.d)))/pl / v.t / v.t;
 
-					//float pl = solidAngle * 1200.0f * 400.0f;
-					// Gotta MIS this
+					float pl = solidAngle * 1200.0f * 400.0f;
 					color = color + light->material.emission * attenuation * obj->material.albedo / M_PI * abs(n.dot(ray.d)) *
 						1 / solidAngle /( 1/solidAngle/solidAngle + abs(ray.d.dot(n))/M_PI* abs(ray.d.dot(n)) / M_PI);
 				}
@@ -245,16 +281,6 @@ Vec3 rayTrace(Ray& ray, int depth) {
 			ray.d = rotMatrix * cosineSampleHemisphere();
 			float cos_t = abs(ray.d.dot(n));
 			mis_brdf_pdf = cos_t / M_PI;
-
-			//float solidAngle = 0.0;
-			//intersection = scene.castRay(ray);
-			//if (intersection.hitObj == light) {
-			//	//return color;
-			//	
-			//	solidAngle = abs(-ray.d.dot(intersection.hitObj->normal(ray.o + intersection.t*ray.d))) * 400 * 400 / intersection.t / intersection.t;
-			//	color = color + (intersection.hitObj->material.emission)*attenuation*obj->material.albedo*
-			//		cos_t/M_PI * cos_t / M_PI /(1/solidAngle/solidAngle + cos_t/M_PI* cos_t / M_PI);
-			//}
 			attenuation = attenuation * obj->material.albedo;/**cos_t/(cos_t/M_PI )*/ // * pi (Surface area) / (pi (lambertian albedo constant))
 		} else if (obj->material.surface == specular) {
 			float r = 1.0f / 1.5f;
@@ -282,47 +308,59 @@ Vec3 rayTrace(Ray& ray, int depth) {
 			mis_brdf_pdf = -1.0f;
 		}
 
-		// TODO: Move russian roulette
-		//if (i > 1) {
-		if (uniform01(gen) > BOUNCE_PROB) {
-			break;
-		}
-		attenuation = attenuation / BOUNCE_PROB;
-		i++;
-		c += last == obj;
-		last = obj;
+		// Some diagnostic tools
+		//i++;
+		//c += last == obj && obj == light;
+		//a += last == obj && obj == light;
+		//last = obj;
 	}
+	//if (a > 1) cout << color << " " << a << endl;
 	return color;
 }
 
-void render(array<array<Vec3, WIDTH>, HEIGHT> *img) {
-	auto t1 = chrono::high_resolution_clock::now();
+auto t1 = chrono::high_resolution_clock::now();
+void render(Img &img) {
 
-	#pragma omp parallel for schedule(dynamic) num_threads(2)
-	for (int py = 0; py < HEIGHT; py++) {
-		for (int px = 0; px < WIDTH; px++) {
-			Ray ray = Ray(Vec3(), Vec3());
-			Vec3 colorVec = Vec3();
-			for (int sample = 0; sample < SAMPLES_PER_PIXEL; sample++) {
-				cameraRay(px + pix(gen), py + pix(gen), ray);
-				colorVec = colorVec + rayTrace(ray, MAX_BOUNCES);
+	if (img.sample_count == 0) {
+		//#pragma omp parallel for schedule(dynamic) num_threads(2)
+		for (int py = 0; py < HEIGHT; py++) {
+			for (int px = 0; px < WIDTH; px++) {
+				Ray ray = Ray(Vec3(), Vec3());
+				Vec3 colorVec = Vec3();
+				for (int sample = 0; sample < SAMPLES_PER_PIXEL; sample++) {
+					cameraRay(px + pix(gen), py + pix(gen), ray);
+					colorVec = colorVec + rayTrace(ray);
+				}
+				(*img.pixels)[py][px] = colorVec/SAMPLES_PER_PIXEL;
 			}
-			(*img)[py][px] = colorVec / SAMPLES_PER_PIXEL;
 		}
+	} else {
+		//#pragma omp parallel for schedule(dynamic) num_threads(2)
+		for (int py = 0; py < HEIGHT; py++) {
+			for (int px = 0; px < WIDTH; px++) {
+				Ray ray = Ray(Vec3(), Vec3());
+				Vec3 colorVec = Vec3();
+				for (int sample = 0; sample < SAMPLES_PER_PIXEL; sample++) {
+					cameraRay(px + pix(gen), py + pix(gen), ray);
+					colorVec = colorVec + rayTrace(ray);
+				}
+				img.update(px, py, colorVec/SAMPLES_PER_PIXEL);
+			}
+		}
+
 	}
-	cout << c << endl;
+
 	// Performance metrics
 	float seconds = (chrono::duration_cast<std::chrono::microseconds>(chrono::high_resolution_clock::now() - t1).count() / 1000000.0);
 	cout << "Took " + to_string(seconds) + "s\n";
-	cout << "Cast " << SAMPLES_PER_PIXEL * WIDTH*HEIGHT << " rays\n";
-	cout << SAMPLES_PER_PIXEL * WIDTH*HEIGHT * (BOUNCE_PROB / (1.0f - BOUNCE_PROB) + 1) / seconds << " rays per second \n";
-	cout << "Average bounces: " << BOUNCE_PROB/(1.0f - BOUNCE_PROB) << endl;
+	/*cout << "Cast " << SAMPLES_PER_PIXEL * WIDTH*HEIGHT << " rays\n";
+	cout << SAMPLES_PER_PIXEL * WIDTH*HEIGHT / seconds << " samples per second \n";*/
 }
 
 void toneMap(array<array<Vec3, WIDTH>, HEIGHT> *img) {
 	//for (int py = 0; py < HEIGHT; py++) {
 	//	for (int px = 0; px < WIDTH; px++) {
-	//		(*img)[py][px] = Vec3(sqrt((*img)[py][px].x), sqrt((*img)[py][px].y), sqrt((*img)[py][px].z));
+	//		(*img)[py][px] = Vec3((*img)[py][px].x, (*img)[py][px].y, (*img)[py][px].z);
 	//	}
 	//}
 }
@@ -343,49 +381,43 @@ string getDateTime() {
 	return s;
 }
 
-int main() {
-	if (!std::numeric_limits<float>::is_iec559) {
-		cout << "Machine architecture must implement IEEE 754.\n";
-		return 0;
+void render_loop(Img &img) {
+	t1 = chrono::high_resolution_clock::now();
+	while (true) {
+		render(img);
+		img.sample_count++;
+		cout << "Accumulated " << SAMPLES_PER_PIXEL*img.sample_count << " samples per pixel" << endl;
 	}
+}
 
-	// Create scene
-	//cout << "Choose scene (0-" << MAX_SCENES << "): ";
-	//int sceneIndex = 0;
-	//cin >> sceneIndex;
-	buildScene(ACTIVE_SCENE);
-
-	array<array<Vec3, WIDTH>, HEIGHT>* img = new array<array<Vec3, WIDTH>, HEIGHT>();
-	// Render scene
-	render(img);
-
-
-
-	// Tone map resulting image
+void process_image(sf::Image &image, array<array<Vec3, WIDTH>, HEIGHT> *img) {
 	toneMap(img);
-
-	sf::Image image;
-	image.create(WIDTH, HEIGHT);
 	// Load image
 	for (int py = 0; py < HEIGHT; py++) {
 		for (int px = 0; px < WIDTH; px++) {
 			image.setPixel(px, py, (*img)[py][px].tosRGB());
 		}
 	}
+}
+
+void gui_thread(Img &img) {
+	// Tone map resulting image
+
+	sf::Image image;
+	image.create(WIDTH, HEIGHT);
+
+	//process_image(image, img);
 
 	// Init texture
 	sf::RenderWindow window(sf::VideoMode(WIDTH, HEIGHT), "Ray tracer");
 	sf::Texture texture;
 	sf::Sprite sprite;
-	texture.loadFromImage(image);
-	sprite.setTexture(texture);
+
 
 	ofstream ofile;
-	while (window.isOpen())
-	{
+	while (window.isOpen()) {
 		sf::Event event;
-		while (window.pollEvent(event))
-		{
+		while (window.pollEvent(event)) {
 			switch (event.type) {
 			case sf::Event::Closed:
 				window.close();
@@ -399,7 +431,7 @@ int main() {
 					ofile.open(".\\renders\\renderData" + getDateTime() + ".txt");
 					for (int py = 0; py < HEIGHT; py++) {
 						for (int px = 0; px < WIDTH; px++) {
-							Vec3 v = (*img)[py][px];
+							Vec3 v = (*img.pixels)[py][px];
 							ofile << (int)v.x << ',' << (int)v.y << ',' << (int)v.z << ' ';
 						}
 						ofile << endl;
@@ -419,13 +451,37 @@ int main() {
 				break;
 			}
 		}
+
 		window.clear();
-
 		window.draw(sprite);
-
-
 		window.display();
+
+		process_image(image, img.pixels);
+		texture.loadFromImage(image);
+		sprite.setTexture(texture);
+
+		//cout << "TSET" << (*img)[50][50] << " " << (unsigned int) image.getPixel(50,50).r << " " << (unsigned int)image.getPixel(50, 50).b<< endl;
 	}
-	delete img;
+}
+
+int main() {
+	if (!std::numeric_limits<float>::is_iec559) {
+		cout << "Machine architecture must implement IEEE 754.\n";
+		return 0;
+	}
+
+	// Create scene
+	//cout << "Choose scene (0-" << MAX_SCENES << "): ";
+	//int sceneIndex = 0;
+	//cin >> sceneIndex;
+	buildScene(ACTIVE_SCENE);
+
+	Img img = Img();
+	img.clear();
+
+	// Render scene
+	thread render_thread = thread(render_loop, ref(img));
+	gui_thread(img);
+	exit(0);
 	return 0;
 }

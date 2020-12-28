@@ -13,6 +13,7 @@ public:
 	Vec3 cross(const Vec3 o);
 	float sqrNorm();
 	float norm();
+	float max();
 	Vec3 normalized();
 	Vec3 proj(const Vec3 a); // Projects vector a onto this
 	sf::Color tosRGB();

@@ -3,8 +3,6 @@
 
 #include "Vec3.h"
 
-using namespace std;
-
 Vec3::Vec3() : x(0.0f), y(0.0f), z(0.0) {
 }
 
@@ -24,7 +22,7 @@ float Vec3::sqrNorm() {
 	return x * x + y * y + z * z;
 }
 float Vec3::norm() {
-	return sqrt(x * x + y * y + z * z);
+	return std::sqrt(x * x + y * y + z * z);
 }
 Vec3 Vec3::normalized() {
 	float n = norm();
@@ -34,19 +32,23 @@ Vec3 Vec3::proj(Vec3 a) {
 	return dot(a) / sqrNorm() * (*this);
 }
 
+float Vec3::max() {
+	return std::max(x, std::max(y, z));
+}
+
 float correctGamma(float x) {
 	if (x <= 0.0031308f) {
 		return 12.92f * x;
 	} else {
-		return 1.055f * powf(x, 1 / 2.4) - 0.055;
+		return 1.055f * std::powf(x, 1 / 2.4) - 0.055;
 	}
 }
 
 sf::Color Vec3::tosRGB() {
 	return sf::Color(
-		255.0f*correctGamma(min(1.0f, x)),
-		255.0f*correctGamma(min(1.0f, y)),
-		255.0f*correctGamma(min(1.0f, z))
+		255.0f*correctGamma(std::min(1.0f, x)),
+		255.0f*correctGamma(std::min(1.0f, y)),
+		255.0f*correctGamma(std::min(1.0f, z))
 	);
 }
 float Vec3::operator[] (int i) {

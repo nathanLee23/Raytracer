@@ -3,17 +3,17 @@
 A toy raytracer for learning.
 
 ## Features
-- A monte-carlo raytracer
+- A monte-carlo pathtracer
 - Diffuse, Specular, Mirror materials
 - Sphere, plane, box geometries
-- Multithreading via openMP
+- GUI to watch render
+- Multithreaded rendering using openMP
 
 ## TODO
 ### Misc. Features
-- BDPT
 - Import .obj files
 - Skybox
-- Movable camera preview to get good camera angles and positioning before rendering
+- Interactive and movable camera
 - Spectral rendering
 - alias tables for O(1) sampling
 
@@ -27,10 +27,9 @@ A toy raytracer for learning.
 
 ### Variance reduction
 - ~~Russian roulette~~
-  - Brightness based russian roulette
+  - ~~Brightness based russian roulette~~
 - ~~Hemisphere sampling~~
-- Multiple importance sampling
-- Metropolis-Hastings (Metropolis Light Transport or Energy redistribution path tracing)
+- ~~Multiple importance sampling~~
 
 ### CUDA
 - Use small kernels over a singular megakernel (see jacco blog)

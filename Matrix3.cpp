@@ -1,8 +1,6 @@
 #include <math.h>
 #include "Matrix3.h"
 
-using namespace std;
-
 Vec3 operator *(const Matrix3& m, const Vec3 v) {
 	Vec3 mv = Vec3();
 	mv.x += m.matrix[0][0] * v.x + m.matrix[0][1] * v.y + m.matrix[0][2] * v.z;
@@ -33,8 +31,8 @@ Matrix3 rotMatrixVectors(Vec3 a, Vec3 b) {
 }
 
 Matrix3 rotMatrixOnAxis(const Vec3 axis, float angle) {
-	float c = cos(angle);
-	float s = sin(angle);
+	float c = std::cos(angle);
+	float s = std::sin(angle);
 
 	Matrix3 rotMatrix;
 	rotMatrix.matrix[0][0] = c + axis.x*axis.x*(1.0f - c);

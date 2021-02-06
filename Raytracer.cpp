@@ -61,6 +61,7 @@ public:
 	}
 
 	void update(int px, int py, Vec3 color) {
+		// TODO use Kahan summation
 		(*pixels)[py][px] = ((*pixels)[py][px] * (float) (sample_count) + color) / ((float) (sample_count + 1));
 	}
 };
@@ -72,6 +73,7 @@ struct Intersection {
 class Scene {
 public:
 	vector<Obj *> objs;
+	vector<Mesh *> meshes;
 
 	vector<Obj *> lights;
 
@@ -90,7 +92,26 @@ public:
 				hitObj = obj;
 			}
 		}
+		Intersection intersection = mesh_intersect(ray);
+		if (intersection.t < minT) {
+			return intersection;
+		}
 		return {minT, hitObj};
+	}
+
+	Intersection mesh_intersect(Ray &ray) {
+		float minT = INFINITY;
+		Triangle *hitTri = nullptr;
+		for (Mesh *mesh : meshes) {
+			Triangle *tempTri;
+			float t = mesh->tri_intersect(ray, &tempTri);
+
+			if (t > EPS && t < minT) {
+				minT = t;
+				hitTri = tempTri;
+			}
+		}
+		return { minT, hitTri};
 	}
 /*
 	float mesh_intersect(Ray &ray, Vec3 &n, Obj **hitObj) {
@@ -104,63 +125,67 @@ uniform_real_distribution<float> pix(-0.5f, 0.5f);
 uniform_real_distribution<float> uniform01(0.0f, 1.0f);
 uniform_real_distribution<float> uniformAngle(0.0f, 2.0f*M_PI);
 Obj *light = nullptr;
+Material redMat = { Vec3(0.65f, 0.05f, 0.05f), 0.0f, Surface(diffuse) };
 void buildScene(int i) {
 	Material mirrorMat = { Vec3(1.0f), 0.0f, Surface(reflective) };
 	Material diffuseMat = { Vec3(0.73f, 0.73f, 0.73f), 0.0f, Surface(diffuse) };
-	Material redMat = { Vec3(0.65f, 0.05f, 0.05f), 0.0f, Surface(diffuse) };
+	//Material redMat = { Vec3(0.65f, 0.05f, 0.05f), 0.0f, Surface(diffuse) };
 	Material greenMat = { Vec3(0.12f, 0.45f, 0.15f), 0.0f, Surface(diffuse) };
 	Material specularMat = { Vec3(1.0f), 0.0f, Surface(specular) };
 
 	// Using specular light sauces creates a lot of noise
 	Material lightMat = { Vec3(1.0f), 16.0f, Surface(specular) };
 	Material ovenMat = { Vec3(0.5f), 0.5f, Surface(diffuse) };
-	switch (i) {
-	default:
-		break;
-	case 0: // Plane
-		scene.addObject(new Plane(Vec3(0.0f, 2.05f, 0.0f), Vec3(0.0f, -1.0f, 0.0f)), diffuseMat);
-		//scene.addObject(new Sphere(Vec3(2.0f, 1.0f, -4.0f), 0.8f), lightMat);
-		scene.addObject(new Sphere(Vec3(1.7f, 0.5f, -4.0f), 1.3f), specularMat);
-		scene.addObject(new Box(Vec3(-1.4f, 0.5f, -3.0f), Vec3(-0.4f, 1.5f, -2.0f)), specularMat);
-		break;
-	case 1: // Cornell box
-		scene.addObject(new Plane(Vec3(0.0f, 0.0f, -800.0f), Vec3(0.0f, 0.0f, 1.0)), diffuseMat);
-		scene.addObject(new Plane(Vec3(0.0f, 0.0f, 800.0f), Vec3(0.0f, 0.0f, -1.0)), diffuseMat);
-		scene.addObject(new Plane(Vec3(0.0f, 800.0f, 0.0f), Vec3(0.0f, -1.0f, 0.0f)), diffuseMat);
-		scene.addObject(new Plane(Vec3(0.0f, -800.0f, 0.0f), Vec3(0.0f, 1.0f, 0.0)), diffuseMat);
-		scene.addObject(new Plane(Vec3(800.0f, 0.0f, 0.0f), Vec3(-1.0f, 0.0f, 0.0)), greenMat);
-		scene.addObject(new Plane(Vec3(-800.0f, 0.0f, 0.0f), Vec3(1.0f, 0.0f, 0.0)), redMat);
 
-		scene.addObject(new Sphere(Vec3(400.0f, 440.0f, -600.0f), 200.3f), specularMat);
-		scene.addObject(new Box(Vec3(-200.0f, -800.0f, -500.0f), Vec3(200.0f, -750.0f, -100.0f)), specularMat);
+	scene.meshes.push_back(load_mesh("geometry/teapot.obj"));
+	scene.meshes.front()->material = diffuseMat;
+	//switch (i) {
+	//default:
+	//	break;
+	//case 0: // Plane
+	//	scene.addObject(new Plane(Vec3(0.0f, 2.05f, 0.0f), Vec3(0.0f, -1.0f, 0.0f)), diffuseMat);
+	//	//scene.addObject(new Sphere(Vec3(2.0f, 1.0f, -4.0f), 0.8f), lightMat);
+	//	scene.addObject(new Sphere(Vec3(1.7f, 0.5f, -4.0f), 1.3f), specularMat);
+	//	scene.addObject(new Box(Vec3(-1.4f, 0.5f, -3.0f), Vec3(-0.4f, 1.5f, -2.0f)), specularMat);
+	//	break;
+	//case 1: // Cornell box
+	//	scene.addObject(new Plane(Vec3(0.0f, 0.0f, -800.0f), Vec3(0.0f, 0.0f, 1.0)), diffuseMat);
+	//	scene.addObject(new Plane(Vec3(0.0f, 0.0f, 800.0f), Vec3(0.0f, 0.0f, -1.0)), diffuseMat);
+	//	scene.addObject(new Plane(Vec3(0.0f, 800.0f, 0.0f), Vec3(0.0f, -1.0f, 0.0f)), diffuseMat);
+	//	scene.addObject(new Plane(Vec3(0.0f, -800.0f, 0.0f), Vec3(0.0f, 1.0f, 0.0)), diffuseMat);
+	//	scene.addObject(new Plane(Vec3(800.0f, 0.0f, 0.0f), Vec3(-1.0f, 0.0f, 0.0)), greenMat);
+	//	scene.addObject(new Plane(Vec3(-800.0f, 0.0f, 0.0f), Vec3(1.0f, 0.0f, 0.0)), redMat);
 
-		scene.addObject(new Box(Vec3(-200.0f, -800.0f, -500.0f), Vec3(200.0f, /*-795.0f*/ -799.9f, -100.0f)), lightMat);
-		light = scene.objs.back();
-		break;
-	case 2: // Oven test
-		/*
-		* The oven test is any encosed room with surface emission 0.5 and reflectance 0.5. So we expect a pixel value
-		* 0.5*(0.5 + 0.5(0.5 + 0.5(...)) = 1.
-		*/
-		scene.addObject(new Plane(Vec3(0.0f, 0.0f, -800.0f), Vec3(0.0f, 0.0f, 1.0)), ovenMat);
-		scene.addObject(new Plane(Vec3(0.0f, 0.0f, 800.0f), Vec3(0.0f, 0.0f, -1.0)), ovenMat);
-		scene.addObject(new Plane(Vec3(0.0f, 800.0f, 0.0f), Vec3(0.0f, -1.0f, 0.0f)), ovenMat);
-		scene.addObject(new Plane(Vec3(0.0f, -800.0f, 0.0f), Vec3(0.0f, 1.0f, 0.0)), ovenMat);
-		scene.addObject(new Plane(Vec3(800.0f, 0.0f, 0.0f), Vec3(-1.0f, 0.0f, 0.0)), ovenMat);
-		scene.addObject(new Plane(Vec3(-800.0f, 0.0f, 0.0f), Vec3(1.0f, 0.0f, 0.0)), ovenMat);
-		break;
-	case 3:
-		scene.addObject(new Plane(Vec3(0.0f, 0.0f, -800.0f), Vec3(0.0f, 0.0f, 1.0)), diffuseMat);
-		scene.addObject(new Plane(Vec3(0.0f, 0.0f, 800.0f), Vec3(0.0f, 0.0f, -1.0)), diffuseMat);
-		scene.addObject(new Plane(Vec3(0.0f, 800.0f, 0.0f), Vec3(0.0f, -1.0f, 0.0f)), diffuseMat);
-		scene.addObject(new Plane(Vec3(0.0f, -800.0f, 0.0f), Vec3(0.0f, 1.0f, 0.0)), diffuseMat);
-		scene.addObject(new Plane(Vec3(800.0f, 0.0f, 0.0f), Vec3(-1.0f, 0.0f, 0.0)), greenMat);
-		scene.addObject(new Plane(Vec3(-800.0f, 0.0f, 0.0f), Vec3(1.0f, 0.0f, 0.0)), redMat);
+	//	scene.addObject(new Sphere(Vec3(400.0f, 440.0f, -600.0f), 200.3f), specularMat);
+	//	scene.addObject(new Box(Vec3(-200.0f, -800.0f, -500.0f), Vec3(200.0f, -750.0f, -100.0f)), specularMat);
 
-		scene.addObject(new Sphere(Vec3(0.0f, -040.0f, -500.0f), 200.3f), diffuseMat);
-		scene.addObject(new Box(Vec3(-50.0f, -800.0f, -650.0f), Vec3(50.0f, /*-795.0f*/ -799.9f, -550.0f)), lightMat);
-		light = scene.objs.back();
-	}
+	//	scene.addObject(new Box(Vec3(-200.0f, -800.0f, -500.0f), Vec3(200.0f, /*-795.0f*/ -799.9f, -100.0f)), lightMat);
+	//	light = scene.objs.back();
+	//	break;
+	//case 2: // Oven test
+	//	/*
+	//	* The oven test is any encosed room with surface emission 0.5 and reflectance 0.5. So we expect a pixel value
+	//	* 0.5*(0.5 + 0.5(0.5 + 0.5(...)) = 1.
+	//	*/
+	//	scene.addObject(new Plane(Vec3(0.0f, 0.0f, -800.0f), Vec3(0.0f, 0.0f, 1.0)), ovenMat);
+	//	scene.addObject(new Plane(Vec3(0.0f, 0.0f, 800.0f), Vec3(0.0f, 0.0f, -1.0)), ovenMat);
+	//	scene.addObject(new Plane(Vec3(0.0f, 800.0f, 0.0f), Vec3(0.0f, -1.0f, 0.0f)), ovenMat);
+	//	scene.addObject(new Plane(Vec3(0.0f, -800.0f, 0.0f), Vec3(0.0f, 1.0f, 0.0)), ovenMat);
+	//	scene.addObject(new Plane(Vec3(800.0f, 0.0f, 0.0f), Vec3(-1.0f, 0.0f, 0.0)), ovenMat);
+	//	scene.addObject(new Plane(Vec3(-800.0f, 0.0f, 0.0f), Vec3(1.0f, 0.0f, 0.0)), ovenMat);
+	//	break;
+	//case 3:
+	//	scene.addObject(new Plane(Vec3(0.0f, 0.0f, -800.0f), Vec3(0.0f, 0.0f, 1.0)), diffuseMat);
+	//	scene.addObject(new Plane(Vec3(0.0f, 0.0f, 800.0f), Vec3(0.0f, 0.0f, -1.0)), diffuseMat);
+	//	scene.addObject(new Plane(Vec3(0.0f, 800.0f, 0.0f), Vec3(0.0f, -1.0f, 0.0f)), diffuseMat);
+	//	scene.addObject(new Plane(Vec3(0.0f, -800.0f, 0.0f), Vec3(0.0f, 1.0f, 0.0)), diffuseMat);
+	//	scene.addObject(new Plane(Vec3(800.0f, 0.0f, 0.0f), Vec3(-1.0f, 0.0f, 0.0)), greenMat);
+	//	scene.addObject(new Plane(Vec3(-800.0f, 0.0f, 0.0f), Vec3(1.0f, 0.0f, 0.0)), redMat);
+
+	//	scene.addObject(new Sphere(Vec3(0.0f, -040.0f, -500.0f), 200.3f), diffuseMat);
+	//	scene.addObject(new Box(Vec3(-50.0f, -800.0f, -650.0f), Vec3(50.0f, /*-795.0f*/ -799.9f, -550.0f)), lightMat);
+	//	light = scene.objs.back();
+	//}
 	//scene.addObject(new Box(Vec3(1.0f, 1.0f, -3.0f), Vec3(1.0f, 1.0f, -3.0f) + Vec3(1.0f, 1.0f, 0.0f)), diffuseMat);
 	/*
 
@@ -178,7 +203,7 @@ void cameraRay(float px, float py, Ray& ray) {
 	// https://computergraphics.stackexchange.com/questions/8479/how-to-calculate-ray
 	float y = (2.0f * py - HEIGHT) / HEIGHT * tanf(((float) HEIGHT) / WIDTH * FOVX * M_PI / 180.0f / 2.0f);
 	float z = -1.0f;
-	ray.o = Vec3(0.0,0.0f,0.0f);
+	ray.o = Vec3(0.0,0.0f,100.0f);
 	ray.d = Vec3(x,y,z).normalized();
 
 	//return Ray(Vec3(), Vec3(x, y, z));
@@ -267,6 +292,7 @@ Vec3 rayTrace(Ray& ray, mt19937 &gen) {
 		Vec3 hp = intersection.t*ray.d + ray.o;
 
 		Obj *obj = intersection.hitObj;
+		obj->material = redMat;
 		Vec3 n = obj->normal(hp);
 		Vec3 emission = Vec3(obj->material.emission);
 		if (emission.max() > 0.0f) {
@@ -327,21 +353,24 @@ Vec3 rayTrace(Ray& ray, mt19937 &gen) {
 		} else if (obj->material.surface == diffuse) {
 			// TODO actually do this properly
 			float pl = 1.0f / 100.0f / 100.0f;
-			if (light != obj) {
-				Vec3 sampledLight = light->samplePoint(gen);
-				ray.d = (sampledLight - ray.o).normalized();
-				Intersection v = scene.castRay(ray);
-				if ( light == v.hitObj) {
-					float solidAngle = abs(-ray.d.dot(v.hitObj->normal(ray.o + v.t*ray.d)))/pl / v.t / v.t;
+			//if (light != obj) {
+			//	Vec3 sampledLight = light->samplePoint(gen);
+			//	ray.d = (sampledLight - ray.o).normalized();
+			//	Intersection v = scene.castRay(ray);
+			//	if ( light == v.hitObj) {
+			//		float solidAngle = abs(-ray.d.dot(v.hitObj->normal(ray.o + v.t*ray.d)))/pl / v.t / v.t;
 
-					color = color + light->material.emission * attenuation * obj->material.albedo / M_PI * abs(n.dot(ray.d)) *
-						1 / solidAngle /( 1/solidAngle/solidAngle + abs(ray.d.dot(n))/M_PI* abs(ray.d.dot(n)) / M_PI) *
-						exp(-density*v.t); // MEDIUM TERM REMOVE LATER
-				}
-			}
+			//		color = color + light->material.emission * attenuation * obj->material.albedo / M_PI * abs(n.dot(ray.d)) *
+			//			1 / solidAngle /( 1/solidAngle/solidAngle + abs(ray.d.dot(n))/M_PI* abs(ray.d.dot(n)) / M_PI) *
+			//			exp(-density*v.t); // MEDIUM TERM REMOVE LATER
+			//	}
+			//}
 			//color = color + emission * attenuation;
 			Matrix3 rotMatrix = rotMatrixVectors(n, Vec3(0.0f, 0.0f, 1.0f));
 			ray.d = rotMatrix * cosineSampleHemisphere(gen);
+			if (ray.d.dot(n) < 0.0) {
+				cout << obj->normal(Vec3()) << endl;
+			}
 			float cos_t = abs(ray.d.dot(n));
 			mis_brdf_pdf = cos_t / M_PI;
 			attenuation = attenuation * obj->material.albedo;/**cos_t/(cos_t/M_PI )*/ // * pi (Surface area) / (pi (lambertian albedo constant))
@@ -371,7 +400,6 @@ Vec3 rayTrace(Ray& ray, mt19937 &gen) {
 			attenuation = attenuation * obj->material.albedo;
 			mis_brdf_pdf = -1.0f;
 		}
-
 		// Some diagnostic tools
 		//i++;
 		//c += last == obj && obj == light;
@@ -520,11 +548,11 @@ void gui_thread(Img &img) {
 				break;
 			}
 		}
-
 		window.clear();
 		window.draw(sprite);
 		window.display();
 
+		// TODO use hardware sRGB instead
 		process_image(image, img.pixels);
 		texture.loadFromImage(image);
 		sprite.setTexture(texture);
@@ -537,7 +565,6 @@ int main() {
 		return 0;
 	}
 	auto t1 = chrono::high_resolution_clock::now();
-	load_mesh("geometry/teapot.obj");
 	float seconds = (chrono::duration_cast<std::chrono::microseconds>(chrono::high_resolution_clock::now() - t1).count() / 1000000.0);
 	cout << "Took " + to_string(seconds) + "s\n";
 	// Create scene

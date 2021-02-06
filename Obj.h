@@ -5,6 +5,9 @@
 #include <fstream>
 #include <sstream>
 
+#define TINYOBJLOADER_IMPLEMENTATION
+#include "tiny_obj_loader.h"
+
 #include "Vec3.h"
 #include "Ray.h"
 #include "Material.h"
@@ -14,7 +17,6 @@
 float sgn(float x) {
 	return (float)((x > 0) - (x < 0));
 }
-
 
 class Obj {
 public:
@@ -102,11 +104,20 @@ public:
 	Vec3 c;
 	Vec3 n;
 
-	Triangle(Vec3 a, Vec3 b, Vec3 c) : a(a), b(b), c(c), n((b - a).cross(c - b).normalized()) {
+	Triangle(Vec3 a, Vec3 b, Vec3 c) : a(a), b(b), c(c), n((b-a).cross(b-c).normalized()) {
 	}
 
 	float intersect(Ray& ray) {
-		return 0.0;
+		Vec3 ba = b - a;
+		Vec3 ca = c - a;
+		Vec3 roa = ray.o - a;
+		Vec3 n = ba.cross(ca);
+		Vec3 q = roa.cross(ray.d);
+		float d = 1.0 / ray.d.dot(n);
+		float u = d * -q.dot(ca);
+		float v = d * q.dot(ba);
+		if (u<0.0 || u>1.0 || v<0.0 || (u + v)>1.0) return INFINITY;
+		return d * -n.dot(roa);
 	}
 	Vec3 normal(Vec3 p) {
 		return n;
@@ -126,11 +137,16 @@ public:
 
 	void  add_triangle(Triangle t) {
 		triangles.push_back(t);
+		bounds.max.x = std::max({ bounds.max.x, t.a.x, t.b.x, t.c.x });
+		bounds.max.y = std::max({ bounds.max.y, t.a.y, t.b.y, t.c.y });
+		bounds.max.z = std::max({ bounds.max.z, t.a.z, t.b.z, t.c.z });
+
+		bounds.min.x = std::min({ bounds.min.x, t.a.x, t.b.x, t.c.x });
+		bounds.min.y = std::min({ bounds.min.y, t.a.y, t.b.y, t.c.y });
+		bounds.min.z = std::min({ bounds.min.z, t.a.z, t.b.z, t.c.z });
+
 	}
-	float intersect(Ray& ray) {
-		if (triangles.empty()) {
-			return INFINITY;
-		}
+	float intersect(Ray &ray) {
 		float min_t = INFINITY;
 		Triangle min_triangle = triangles.front();
 		for (Triangle triangle : triangles) {
@@ -142,6 +158,27 @@ public:
 		}
 		return min_t;
 	}
+
+	float tri_intersect(Ray &ray, Triangle **min_triangle) {
+		float min_t = bounds.intersect(ray);
+		if (std::isinf(min_t))
+			return min_t;
+		min_t = INFINITY;
+		for (int i = 0; i < triangles.size(); i ++) {
+			Triangle triangle = triangles[i];
+			float t = triangle.intersect(ray);
+			if (t < min_t) {
+				min_t = t;
+				*min_triangle = &triangles[i];
+				// TODO: do something more efficient here
+				// like make the material part of the return,
+				// and get rid of materials from triangles
+				(*min_triangle)->material = material;
+			}
+		}
+		return min_t;
+	}
+
 	Vec3 normal(Vec3 p) {
 		return Vec3();
 	}
@@ -160,97 +197,106 @@ int filter_extra(std::istringstream &s) {
 
 }
 
-Mesh load_mesh(std::string file_name) {
-	std::ifstream ifile(file_name);
-	if (errno) {
-		throw std::system_error(errno, std::system_category(), "Failed to open: " + file_name);
-	} else {
-		std::cout << "Successfully opened file " + file_name << std::endl;
-	}
-	Mesh mesh = Mesh();
-
+Mesh *load_mesh(std::string file_name) {
 	
-	std::vector<Vec3> vertices;
-	while (!ifile.eof()) {
-		if (isspace(ifile.peek())) {
-			ifile.get();
-			continue;
+	tinyobj::ObjReaderConfig reader_config;
+	reader_config.mtl_search_path = "./"; // Path to material files
+
+	tinyobj::ObjReader reader;
+
+	if (!reader.ParseFromFile(file_name, reader_config)) {
+		if (!reader.Error().empty()) {
+			std::cerr << "TinyObjReader: " << reader.Error();
 		}
-		std::string line;
-		std::getline(ifile, line);
-		if (line.size() < 2) { // Too short
-		} else if (line.rfind("#", 0) == 0) { // comment
-		} else if (line.rfind("v ", 0) == 0) { // vertex
-			Vec3 vertex;
-			sscanf_s(line.c_str(), "v %f %f %f", &vertex.x, &vertex.y, &vertex.z);
-			vertices.push_back(vertex);
-		} else if (line.rfind("f ", 0) == 0) {//face
-			std::istringstream line_ss(line);
-			std::string word;
-			line_ss >> word;
+		exit(1);
+	}
 
-			int a = filter_extra(line_ss);
-			int b = filter_extra(line_ss);
-			int c = filter_extra(line_ss);
+	if (!reader.Warning().empty()) {
+		std::cout << "TinyObjReader: " << reader.Warning();
+	}
 
-			mesh.add_triangle(Triangle(vertices.at(a - 1), vertices.at(b - 1), vertices.at(c - 1)));
-			b = c;
-			while (c = filter_extra(line_ss) >= 0) {
-				mesh.add_triangle(Triangle(vertices.at(a - 1), vertices.at(b - 1), vertices.at(c - 1)));
+	auto& attrib = reader.GetAttrib();
+	auto& shapes = reader.GetShapes();
+	Mesh *mesh = new Mesh();
+	for (size_t s = 0; s < shapes.size(); s++) {
+		// Loop over faces(polygon)
+		size_t index_offset = 0;
+		for (size_t f = 0; f < shapes[s].mesh.num_face_vertices.size(); f++) {
+			int fv = shapes[s].mesh.num_face_vertices[f];
+			
+			tinyobj::index_t idx = shapes[s].mesh.indices[index_offset + 0];
+			tinyobj::real_t vx = attrib.vertices[3 * idx.vertex_index + 0];
+			tinyobj::real_t vy = attrib.vertices[3 * idx.vertex_index + 1];
+			tinyobj::real_t vz = attrib.vertices[3 * idx.vertex_index + 2];
+			Vec3 a = Vec3(vx, vy, vz);
+
+			idx = shapes[s].mesh.indices[index_offset + 1];
+			vx = attrib.vertices[3 * idx.vertex_index + 0];
+			vy = attrib.vertices[3 * idx.vertex_index + 1];
+			vz = attrib.vertices[3 * idx.vertex_index + 2];
+			Vec3 b = Vec3(vx, vy, vz);
+
+			// Loop over vertices in the face.
+			for (size_t v = 2; v < fv; v++) {
+				tinyobj::index_t idx = shapes[s].mesh.indices[index_offset + v];
+				tinyobj::real_t vx = attrib.vertices[3 * idx.vertex_index + 0];
+				tinyobj::real_t vy = attrib.vertices[3 * idx.vertex_index + 1];
+				tinyobj::real_t vz = attrib.vertices[3 * idx.vertex_index + 2];
+				Vec3 c = Vec3(vx, vy, vz);
+				mesh->add_triangle(Triangle(a,b,c));
 				b = c;
 			}
+			index_offset += fv;
+
+			// per-face material
+			//shapes[s].mesh.material_ids[f];
 		}
 	}
 	return mesh;
 }
 
-class Plane : public Obj {
-public:
-	float k; // k = a.dot(n)
-	Vec3 n;
-
-	Plane(Vec3 a, Vec3 n_) {
-		n = n_.normalized();
-		k = n.dot(a);
-	}
-
-	float intersect(Ray& ray) {
-		return (k - n.dot(ray.o)) / n.dot(ray.d);
-	}
-
-	Vec3 normal(Vec3 p) {
-		return n;
-	
-	}
-	Vec3 samplePoint(std::mt19937 gen) {
-		return Vec3();
-	}
-};
-
-class Sphere : public Obj {
-public:
-	Vec3 c;
-	float r;
-
-	Sphere(Vec3 c, float r) : c(c), r(r) {
-	}
-	float intersect(Ray& ray) {
-		float B = 2 * ray.d.dot(ray.o - c);
-		float C = (ray.o - c).sqrNorm() - r * r;
-
-		float sqrDiscr = B * B - 4 * C;
-		if (sqrDiscr < 0.0f) {
-			return INFINITY;
-		}
-		float discr = sqrt(sqrDiscr);
-		float t1 = (-B - discr) / 2.0f;
-		//float t2 = (-B + discr)/2.0f;
-		return t1 > EPS ? t1 : (-B + discr) / 2.0f;
-	}
-	Vec3 normal(Vec3 p) {
-		return (p - c) / r;
-	}
-	Vec3 samplePoint(std::mt19937 gen) {
-		return Vec3();
-	}
-};
+//Mesh *load_mesh(std::string file_name) {
+//	std::ifstream ifile(file_name);
+//	if (errno) {
+//		throw std::system_error(errno, std::system_category(), "Failed to open: " + file_name);
+//	} else {
+//		std::cout << "Successfully opened file " + file_name << std::endl;
+//	}
+//	Mesh *mesh = new Mesh();
+//
+//	std::vector<Vec3> vertices;
+//	while (!ifile.eof()) {
+//		if (isspace(ifile.peek())) {
+//			ifile.get();
+//			continue;
+//		}
+//		std::string line;
+//		std::getline(ifile, line);
+//		if (line.size() < 2) { // Too short
+//		} else if (line.rfind("#", 0) == 0) { // comment
+//		} else if (line.rfind("v ", 0) == 0) { // vertex
+//			Vec3 vertex;
+//			sscanf_s(line.c_str(), "v %f %f %f", &vertex.x, &vertex.y, &vertex.z);
+//			vertices.push_back(vertex);
+//		} else if (line.rfind("f ", 0) == 0) {//face
+//			std::istringstream line_ss(line);
+//			std::string word;
+//			line_ss >> word;
+//
+//			int a = filter_extra(line_ss);
+//			int b = filter_extra(line_ss);
+//			int c = filter_extra(line_ss);
+//
+//			mesh->add_triangle(Triangle(vertices.at(a - 1), vertices.at(b - 1), vertices.at(c - 1)));
+//			//std::cout << mesh->triangles.back().n;
+//			b = c;
+//			while ((c = filter_extra(line_ss)) >= 0) {
+//				mesh->add_triangle(Triangle(vertices.at(a - 1), vertices.at(b - 1), vertices.at(c - 1)));
+//				//std::cout << " " << mesh->triangles.back().n;
+//				b = c;
+//			}
+//			//std::cout << std::endl;
+//		}
+//	}
+//	return mesh;
+//}

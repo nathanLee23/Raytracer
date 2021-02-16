@@ -3,14 +3,14 @@
 A WIP toy raytracer for learning.
 
 ## Samples
-Diffuse material:
-![Sample 1](samples/sample1.png)
+Diffuse material:  
+<img src="samples/sample1.png" height="600">
 
-Glass material:
-![Sample 2](samples/sample2.png)
+Glass material:  
+<img src="samples/sample2.png" height="600">
 
-Multiple importance sampling in a slightly more complicated scene:
-![Sample 3](samples/sample3.png)
+Multiple importance sampling in a slightly more complicated scene:  
+<img src="samples/sample3.png" height="600">
 
 ## Features
 - A monte-carlo pathtracer

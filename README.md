@@ -1,6 +1,6 @@
 # Raytracer
 
-A toy raytracer for learning.
+A WIP toy raytracer for learning.
 
 ## Features
 - A monte-carlo pathtracer
@@ -38,3 +38,7 @@ A toy raytracer for learning.
 
 ### Misc. Optimization
 - Test Vec4
+
+
+## Dependancies
+You'll have to install Intel Embree to be able to compile and run this at the moment

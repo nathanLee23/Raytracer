@@ -200,7 +200,7 @@ int filter_extra(std::istringstream &s) {
 Mesh *load_mesh(std::string file_name) {
 	
 	tinyobj::ObjReaderConfig reader_config;
-	reader_config.mtl_search_path = "./"; // Path to material files
+	//reader_config.mtl_search_path = "./"; // Path to material files
 
 	tinyobj::ObjReader reader;
 

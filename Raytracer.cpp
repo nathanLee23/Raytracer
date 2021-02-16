@@ -18,6 +18,7 @@
 
 #include <omp.h>
 #include <SFML/Graphics.hpp>
+#include <embree3/rtcore.h>
 
 #include "Vec3.h"
 #include "Matrix3.h"
@@ -28,7 +29,7 @@
 
 #define WIDTH 800
 #define HEIGHT 800
-#define FOVX 120.0f
+#define FOVX 60.0f
 #define ACTIVE_SCENE 3
 
 #define AMBIENT 0.3f
@@ -37,7 +38,7 @@
 
 // Unused
 #define MIN_BOUNCES 2
-#define BOUNCE_PROB 0.8f
+#define MAX_BOUNCE_PROB 0.95f
 #define HEMISPHERE_AREA (M_PI*2.0f)
 
 using namespace std;
@@ -203,7 +204,7 @@ void cameraRay(float px, float py, Ray& ray) {
 	// https://computergraphics.stackexchange.com/questions/8479/how-to-calculate-ray
 	float y = (2.0f * py - HEIGHT) / HEIGHT * tanf(((float) HEIGHT) / WIDTH * FOVX * M_PI / 180.0f / 2.0f);
 	float z = -1.0f;
-	ray.o = Vec3(0.0,0.0f,100.0f);
+	ray.o = Vec3(0.0,0.0f,70.0f);
 	ray.d = Vec3(x,y,z).normalized();
 
 	//return Ray(Vec3(), Vec3(x, y, z));
@@ -268,7 +269,7 @@ Vec3 rayTrace(Ray& ray, mt19937 &gen) {
 	Vec3 color = Vec3(0.0f);
 	Obj *last = nullptr;
 	//int i = 0;
-	int a = 0;
+	//int a = 0;
 	float mis_brdf_pdf = -1.0f; // Negative when mis was not used
 	while (true) {
 		Intersection intersection = scene.castRay(ray);
@@ -338,7 +339,7 @@ Vec3 rayTrace(Ray& ray, mt19937 &gen) {
 		// TODO
 		// Some rays get eliminated before they can even do anything,
 		// So either try setting minimum bounces or rearranging some of the code
-		float bounce_probability = min(attenuation.max(), 0.95f);
+		float bounce_probability = min(attenuation.max(), MAX_BOUNCE_PROB);
 		if (uniform01(gen) > bounce_probability) {
 			break;
 		}
@@ -406,7 +407,9 @@ Vec3 rayTrace(Ray& ray, mt19937 &gen) {
 		//a += last == obj && obj == light;
 		//last = obj;
 	}
+	//if (i > 1) cout << color << " " << i << endl;
 	//if (a > 1) cout << color << " " << a << endl;
+	//if (color.max() < 0.4) cout << color << endl;
 	return color;
 }
 

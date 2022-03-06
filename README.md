@@ -3,29 +3,29 @@
 A WIP toy raytracer for learning.
 
 ## Samples
-Diffuse material:
-![Sample 1](samples/sample1.png)
+Diffuse material:  
+<img src="samples/sample1.png" height="600">
 
-Glass material:
-![Sample 2](samples/sample2.png)
+Glass material:  
+<img src="samples/sample2.png" height="600">
 
-Multiple importance sampling in a slightly more complicated scene:
-![Sample 3](samples/sample3.png)
+Multiple importance sampling in a slightly more complicated scene:  
+<img src="samples/sample3.png" height="600">
 
 ## Features
 - A monte-carlo pathtracer
 - Diffuse, Specular, Mirror materials
-- Sphere, plane, box geometries
-- GUI to watch render
+- OBJ loading
+- GUI to watch in progress render
 - Multithreaded rendering using openMP
 
 ## TODO
-### Misc. Features
-- Import .obj files
-- Skybox
+### Features
+- ~~Import .obj files~~
+- Import cubemaps
 - Interactive and movable camera
 - Spectral rendering
-- alias tables for O(1) sampling
+- Scene editing
 
 ### Bugs
 - Specular refractive index fix
@@ -40,15 +40,14 @@ Multiple importance sampling in a slightly more complicated scene:
   - ~~Brightness based russian roulette~~
 - ~~Hemisphere sampling~~
 - ~~Multiple importance sampling~~
+- Low discrepancy sequences
 
 ### CUDA
 - Use small kernels over a singular megakernel (see jacco blog)
 - Data oriented design (DOD) such that all the attributes of a certain types are arrays
-- CUDA SIMD intrinsics for even more speed
 
 ### Misc. Optimization
 - Test Vec4
-
 
 ## Dependancies
 You'll have to install Intel Embree to be able to compile and run this at the moment

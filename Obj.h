@@ -5,6 +5,8 @@
 #include <fstream>
 #include <sstream>
 
+#include <embree3/rtcore.h>
+
 #define TINYOBJLOADER_IMPLEMENTATION
 #include "tiny_obj_loader.h"
 
@@ -20,15 +22,11 @@ float sgn(float x) {
 
 class Obj {
 public:
-	Material material;
-
 	// Returns the t for which r.o+t*r.d intersects the object
 	// Returns a negative number if no intersection exists
 	virtual float intersect(Ray& ray) = 0;
 
-	// If p is a point on the object normal() returns the normalized normal of the object at the point
-	virtual Vec3 normal(Vec3 p) = 0;
-	virtual Vec3 samplePoint(std::mt19937 gen) = 0;
+	virtual float samplePoint(std::mt19937& gen, Vec3& point_ret) = 0;
 };
 //
 //std::uniform_real_distribution<float> eta(0, 1);
@@ -88,14 +86,12 @@ public:
 	}
 
 
-	Vec3 samplePoint(std::mt19937 gen) {
-
-		std::uniform_real_distribution<float> rx(min.x, max.x);
-		std::uniform_real_distribution<float> rz(min.z, max.z);
-
-		return Vec3(rx(gen), max.y, rz(gen));
+	float samplePoint(std::mt19937& gen, Vec3& point_ret) {
+		return 0.0f;
 	}
 };
+
+std::uniform_real_distribution<float> uniform01(0.0f, 1.0f);
 
 class Triangle : public Obj {
 public:
@@ -104,7 +100,9 @@ public:
 	Vec3 c;
 	Vec3 n;
 
-	Triangle(Vec3 a, Vec3 b, Vec3 c) : a(a), b(b), c(c), n((b-a).cross(b-c).normalized()) {
+	float rcp_area;
+
+	Triangle(Vec3 a, Vec3 b, Vec3 c) : a(a), b(b), c(c), n((b-a).cross(c-b).normalized()), rcp_area(2.0f / (b - a).cross(c - b).norm()) {
 	}
 
 	float intersect(Ray& ray) {
@@ -113,45 +111,82 @@ public:
 		Vec3 roa = ray.o - a;
 		Vec3 n = ba.cross(ca);
 		Vec3 q = roa.cross(ray.d);
-		float d = 1.0 / ray.d.dot(n);
+		float d = 1.0f / ray.d.dot(n);
 		float u = d * -q.dot(ca);
 		float v = d * q.dot(ba);
-		if (u<0.0 || u>1.0 || v<0.0 || (u + v)>1.0) return INFINITY;
+		if (u<0.0f || u>1.0f || v<0.0f || (u + v)>1.0f) return INFINITY;
 		return d * -n.dot(roa);
 	}
+
 	Vec3 normal(Vec3 p) {
 		return n;
 	}
-	Vec3 samplePoint(std::mt19937 gen) {
-		return Vec3();
+
+	float samplePoint(std::mt19937& gen, Vec3& point_ret) {
+		float u[2] = { uniform01(gen), uniform01(gen) };
+
+		float su0 = std::sqrt(u[0]);
+		float b0 = 1 - su0;
+		float b1 = u[1] * su0;
+		Vec3 barycentric = Vec3(b0, b1, 1.f - b0 - b1);
+
+		return rcp_area;
+	}
+
+	float lowDiscrepancySamplePoint(std::mt19937& gen, Vec3& point_ret) {
+		// https://pharr.org/matt/blog/2019/03/13/triangle-sampling-1.5
+		uint32_t uf = uniform01(gen) * (1ull << 32);  // Fixed point
+		float cx = 0.0f;
+		float cy = 0.0f;
+		float w = 0.5f;
+
+		for (int i = 0; i < 16; i++) {
+			uint32_t uu = uf >> 30;
+			bool flip = (uu & 3) == 0;
+
+			cy += ((uu & 1) == 0) * w;
+			cx += ((uu & 2) == 0) * w;
+
+			w *= flip ? -0.5f : 0.5f;
+			uf <<= 2;
+		}
+
+		float b0 = cx + w / 3.0f, b1 = cy + w / 3.0f;
+		Vec3 barycentric = Vec3(b0, b1, 1 - b0 - b1 );
+
+		//TODO transform barycentric points to world coordinates
+
+		return rcp_area;
 	}
 };
 
 class Mesh : public Obj {
 public:
 	std::vector<Triangle> triangles;
-	Box bounds = Box(Vec3(), Vec3());
+
+	// Per triangle material index
+	std::vector<unsigned> material_idxs;
+	
+	std::vector<Material> materials;
 
 	Mesh() {
 	}
 
-	void  add_triangle(Triangle t) {
+	void add_triangle(Triangle t, unsigned material_id) {
 		triangles.push_back(t);
-		bounds.max.x = std::max({ bounds.max.x, t.a.x, t.b.x, t.c.x });
-		bounds.max.y = std::max({ bounds.max.y, t.a.y, t.b.y, t.c.y });
-		bounds.max.z = std::max({ bounds.max.z, t.a.z, t.b.z, t.c.z });
-
-		bounds.min.x = std::min({ bounds.min.x, t.a.x, t.b.x, t.c.x });
-		bounds.min.y = std::min({ bounds.min.y, t.a.y, t.b.y, t.c.y });
-		bounds.min.z = std::min({ bounds.min.z, t.a.z, t.b.z, t.c.z });
-
+		material_idxs.push_back(material_id);
 	}
+	
+	void add_material(Material material) {
+		materials.push_back(material);
+	}
+
 	float intersect(Ray &ray) {
 		float min_t = INFINITY;
 		Triangle min_triangle = triangles.front();
 		for (Triangle triangle : triangles) {
 			float t = triangle.intersect(ray);
-			if (t < min_t) {
+			if (EPS < t && t < min_t) {
 				min_t = t;
 				min_triangle = triangle;
 			}
@@ -159,101 +194,65 @@ public:
 		return min_t;
 	}
 
-	float tri_intersect(Ray &ray, Triangle **min_triangle) {
-		float min_t = bounds.intersect(ray);
-		if (std::isinf(min_t))
-			return min_t;
-		min_t = INFINITY;
-		for (int i = 0; i < triangles.size(); i ++) {
-			Triangle triangle = triangles[i];
-			float t = triangle.intersect(ray);
-			if (t < min_t) {
-				min_t = t;
-				*min_triangle = &triangles[i];
-				// TODO: do something more efficient here
-				// like make the material part of the return,
-				// and get rid of materials from triangles
-				(*min_triangle)->material = material;
-			}
+	float samplePoint(std::mt19937& gen, Vec3& point_ret) {
+		return 0.0f;
+	}
+};
+
+class EmbreeMesh : public Obj {
+public:
+	//TODO replace with span
+	Vec3* vertices;
+	unsigned* triangles;
+	RTCGeometry rtcmesh;
+
+	// Per triangle material index
+	std::vector<unsigned> material_idxs;
+
+	std::vector<Material> materials;
+
+	EmbreeMesh(RTCDevice rtcdevice, RTCScene rtcscene, Mesh *mesh) {
+		rtcmesh = rtcNewGeometry(rtcdevice, RTC_GEOMETRY_TYPE_TRIANGLE);
+		vertices = (Vec3*)rtcSetNewGeometryBuffer(rtcmesh, RTC_BUFFER_TYPE_VERTEX, 0, RTC_FORMAT_FLOAT3, sizeof(Vec3), 3 * mesh->triangles.size());
+		triangles = (unsigned*)rtcSetNewGeometryBuffer(rtcmesh, RTC_BUFFER_TYPE_INDEX, 0, RTC_FORMAT_UINT3, 3 * sizeof(unsigned), mesh->triangles.size());
+		for (size_t i = 0; i < mesh->triangles.size(); i++) {
+			vertices[3 * i] = mesh->triangles[i].a;
+			vertices[3 * i + 1] = mesh->triangles[i].b;
+			vertices[3 * i + 2] = mesh->triangles[i].c;
+
+			triangles[3 * i] = 3 * i;
+			triangles[3 * i + 1] = 3 * i + 1;
+			triangles[3 * i + 2] = 3 * i + 2;
 		}
-		return min_t;
+
+		rtcCommitGeometry(rtcmesh);
+		unsigned int geomID = rtcAttachGeometry(rtcscene, rtcmesh);
+		rtcReleaseGeometry(rtcmesh);
+
+		materials = mesh->materials;
+	}
+
+	float intersect(Ray& ray) {
+		return 0.0f;
 	}
 
 	Vec3 normal(Vec3 p) {
 		return Vec3();
 	}
-	Vec3 samplePoint(std::mt19937 gen) {
-		return Vec3();
+	float samplePoint(std::mt19937& gen, Vec3& point_ret) {
+		return 0.0f;
 	}
 };
 
-int filter_extra(std::istringstream &s) {
-	std::string x;
-	if (s >> x) {
-		return std::stoi(x.substr(0, x.find_first_of('/')));
-	} else {
-		return -1;
-	}
-
-}
-
-Mesh *load_mesh(std::string file_name) {
-	
-	tinyobj::ObjReaderConfig reader_config;
-	//reader_config.mtl_search_path = "./"; // Path to material files
-
-	tinyobj::ObjReader reader;
-
-	if (!reader.ParseFromFile(file_name, reader_config)) {
-		if (!reader.Error().empty()) {
-			std::cerr << "TinyObjReader: " << reader.Error();
-		}
-		exit(1);
-	}
-
-	if (!reader.Warning().empty()) {
-		std::cout << "TinyObjReader: " << reader.Warning();
-	}
-
-	auto& attrib = reader.GetAttrib();
-	auto& shapes = reader.GetShapes();
-	Mesh *mesh = new Mesh();
-	for (size_t s = 0; s < shapes.size(); s++) {
-		// Loop over faces(polygon)
-		size_t index_offset = 0;
-		for (size_t f = 0; f < shapes[s].mesh.num_face_vertices.size(); f++) {
-			int fv = shapes[s].mesh.num_face_vertices[f];
-			
-			tinyobj::index_t idx = shapes[s].mesh.indices[index_offset + 0];
-			tinyobj::real_t vx = attrib.vertices[3 * idx.vertex_index + 0];
-			tinyobj::real_t vy = attrib.vertices[3 * idx.vertex_index + 1];
-			tinyobj::real_t vz = attrib.vertices[3 * idx.vertex_index + 2];
-			Vec3 a = Vec3(vx, vy, vz);
-
-			idx = shapes[s].mesh.indices[index_offset + 1];
-			vx = attrib.vertices[3 * idx.vertex_index + 0];
-			vy = attrib.vertices[3 * idx.vertex_index + 1];
-			vz = attrib.vertices[3 * idx.vertex_index + 2];
-			Vec3 b = Vec3(vx, vy, vz);
-
-			// Loop over vertices in the face.
-			for (size_t v = 2; v < fv; v++) {
-				tinyobj::index_t idx = shapes[s].mesh.indices[index_offset + v];
-				tinyobj::real_t vx = attrib.vertices[3 * idx.vertex_index + 0];
-				tinyobj::real_t vy = attrib.vertices[3 * idx.vertex_index + 1];
-				tinyobj::real_t vz = attrib.vertices[3 * idx.vertex_index + 2];
-				Vec3 c = Vec3(vx, vy, vz);
-				mesh->add_triangle(Triangle(a,b,c));
-				b = c;
-			}
-			index_offset += fv;
-
-			// per-face material
-			//shapes[s].mesh.material_ids[f];
-		}
-	}
-	return mesh;
-}
+//int filter_extra(std::istringstream &s) {
+//	std::string x;
+//	if (s >> x) {
+//		return std::stoi(x.substr(0, x.find_first_of('/')));
+//	} else {
+//		return -1;
+//	}
+//
+//}
 
 //Mesh *load_mesh(std::string file_name) {
 //	std::ifstream ifile(file_name);

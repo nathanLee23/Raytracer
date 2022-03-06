@@ -17,6 +17,7 @@ public:
 	Vec3 normalized();
 	Vec3 proj(const Vec3 a); // Projects vector a onto this
 	sf::Color tosRGB();
+	sf::Color toColor();
 
 	float operator[] (int i);
 };

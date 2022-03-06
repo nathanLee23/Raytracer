@@ -51,6 +51,15 @@ sf::Color Vec3::tosRGB() {
 		255.0f*correctGamma(std::min(1.0f, z))
 	);
 }
+
+sf::Color Vec3::toColor() {
+	return sf::Color(
+		255.0f * std::min(1.0f, x),
+		255.0f * std::min(1.0f, y),
+		255.0f * std::min(1.0f, z)
+	);
+}
+
 float Vec3::operator[] (int i) {
 	switch (i) {
 	case 0:

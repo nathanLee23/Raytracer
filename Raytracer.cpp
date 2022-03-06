@@ -11,7 +11,7 @@
 #define _USE_MATH_DEFINES
 #include <math.h>
 #include <limits>
-#include <random> // Replace with QMC generators
+#include <random> // TODO Replace with QMC generators
 
 #include <chrono>
 #include <ctime>  
@@ -33,12 +33,15 @@
 #define ACTIVE_SCENE 3
 
 #define AMBIENT 0.3f
-#define SAMPLES_PER_PIXEL 1
+#define SAMPLES_PER_PIXEL 4
 #define THREADS 2
+
+// How much emission a material should have to be sampled by NEE
+#define NEE_EMISSION_THRESHOLD 0.05
 
 // Unused
 #define MIN_BOUNCES 2
-#define MAX_BOUNCE_PROB 0.95f
+#define MAX_BOUNCE_PROB 0.98f
 #define HEMISPHERE_AREA (M_PI*2.0f)
 
 using namespace std;
@@ -66,65 +69,196 @@ public:
 		(*pixels)[py][px] = ((*pixels)[py][px] * (float) (sample_count) + color) / ((float) (sample_count + 1));
 	}
 };
+
 struct Intersection {
 	float t;
 	Obj * hitObj;
+	Material material;
+	Vec3 normal;
 };
+
+void rtcErrorFunction(void* userPtr, enum RTCError error, const char* str) {
+	printf("RTCERROR %d: %s\n", error, str);
+}
 
 class Scene {
 public:
 	vector<Obj *> objs;
 	vector<Mesh *> meshes;
 
-	vector<Obj *> lights;
+	vector<Triangle> lights;
 
-	void addObject(Obj *obj, Material material) {
-		obj->material = material;
-		objs.push_back(obj);
+	vector<Material> materials;
+	
+	RTCDevice rtcdevice;
+	RTCScene rtcscene;
+
+	Scene() {
+		rtcdevice = rtcNewDevice(nullptr);
+		rtcSetDeviceErrorFunction(rtcdevice, rtcErrorFunction, NULL);
+		rtcscene = rtcNewScene(rtcdevice);
+		rtcSetSceneBuildQuality(rtcscene, RTC_BUILD_QUALITY_HIGH);
 	}
 
-	Intersection castRay(Ray& ray) {
-		float minT = INFINITY;
-		Obj *hitObj = nullptr;
-		for (Obj *obj : objs) {
-			float t = obj->intersect(ray);
-			if (t > EPS && t < minT) {
-				minT = t;
-				hitObj = obj;
+	~Scene() {
+		rtcReleaseScene(rtcscene);
+		rtcReleaseDevice(rtcdevice);
+	}
+
+	Mesh *load_mesh(std::string file_name) {
+
+		tinyobj::ObjReaderConfig reader_config;
+		//reader_config.mtl_search_path = "./"; // Path to material files
+
+		tinyobj::ObjReader reader;
+
+		if (!reader.ParseFromFile(file_name, reader_config)) {
+			if (!reader.Error().empty()) {
+				std::cerr << "TinyObjReader: " << reader.Error();
+			}
+			exit(1);
+		}
+
+		//if (!reader.Warning().empty()) {
+		//	std::cout << "TinyObjReader: " << reader.Warning();
+		//}
+
+		Mesh *mesh = new Mesh();
+
+		auto& attrib = reader.GetAttrib();
+		auto& shapes = reader.GetShapes();
+		for (size_t i = 0; i < reader.GetMaterials().size(); i++) {
+			mesh->add_material({ Vec3(0.65f, 0.05f, 0.05f), 0.0f, Surface(diffuse) });
+		}
+
+		//TODO rewrite to just use a basic buffer
+		for (size_t s = 0; s < shapes.size(); s++) {
+			// Loop over faces(polygon)
+			size_t index_offset = 0;
+			for (size_t f = 0; f < shapes[s].mesh.num_face_vertices.size(); f++) {
+				int fv = shapes[s].mesh.num_face_vertices[f];
+
+				tinyobj::index_t idx = shapes[s].mesh.indices[index_offset + 0];
+				tinyobj::real_t vx = attrib.vertices[3 * idx.vertex_index + 0];
+				tinyobj::real_t vy = attrib.vertices[3 * idx.vertex_index + 1];
+				tinyobj::real_t vz = attrib.vertices[3 * idx.vertex_index + 2];
+				Vec3 a = Vec3(vx, vy, vz);
+
+				idx = shapes[s].mesh.indices[index_offset + 1];
+				vx = attrib.vertices[3 * idx.vertex_index + 0];
+				vy = attrib.vertices[3 * idx.vertex_index + 1];
+				vz = attrib.vertices[3 * idx.vertex_index + 2];
+				Vec3 b = Vec3(vx, vy, vz);
+
+				// Loop over vertices in the face.
+				for (size_t v = 2; v < fv; v++) {
+					tinyobj::index_t idx = shapes[s].mesh.indices[index_offset + v];
+					tinyobj::real_t vx = attrib.vertices[3 * idx.vertex_index + 0];
+					tinyobj::real_t vy = attrib.vertices[3 * idx.vertex_index + 1];
+					tinyobj::real_t vz = attrib.vertices[3 * idx.vertex_index + 2];
+					Vec3 c = Vec3(vx, vy, vz);
+					mesh->add_triangle(Triangle(a, b, c), shapes[s].mesh.material_ids[f]);
+					b = c;
+				}
+				index_offset += fv;
+
 			}
 		}
-		Intersection intersection = mesh_intersect(ray);
-		if (intersection.t < minT) {
-			return intersection;
-		}
-		return {minT, hitObj};
+		return mesh;
 	}
 
-	Intersection mesh_intersect(Ray &ray) {
-		float minT = INFINITY;
-		Triangle *hitTri = nullptr;
-		for (Mesh *mesh : meshes) {
-			Triangle *tempTri;
-			float t = mesh->tri_intersect(ray, &tempTri);
+	vector<EmbreeMesh> e_meshes;
+	void addMesh(Mesh *mesh) {
+		meshes.push_back(mesh);
+		e_meshes.push_back(EmbreeMesh(rtcdevice, rtcscene, mesh));
+	}
 
-			if (t > EPS && t < minT) {
-				minT = t;
-				hitTri = tempTri;
+	void commit() {
+		rtcCommitScene(rtcscene);
+
+		for (const EmbreeMesh& mesh : e_meshes) {
+			for (size_t i = 0; i < mesh.material_idxs.size(); i++) {
+				if (mesh.materials[mesh.material_idxs[i]].emission > NEE_EMISSION_THRESHOLD) {
+					lights.push_back(
+						Triangle(
+							mesh.vertices[3 * mesh.triangles[i]],
+							mesh.vertices[3 * mesh.triangles[i] + 1],
+							mesh.vertices[3 * mesh.triangles[i] + 2]
+					));
+				}
 			}
 		}
-		return { minT, hitTri};
 	}
-/*
-	float mesh_intersect(Ray &ray, Vec3 &n, Obj **hitObj) {
 
-	}*/
+	void castRay(Ray& ray, Intersection& intersection) {
+		RTCIntersectContext rtccontext;
+		rtcInitIntersectContext(&rtccontext);
+		RTCRayHit rayhit;
+		rayhit.ray.org_x = ray.o.x;
+		rayhit.ray.org_y = ray.o.y;
+		rayhit.ray.org_z = ray.o.z;
+
+		rayhit.ray.dir_x = ray.d.x;
+		rayhit.ray.dir_y = ray.d.y;
+		rayhit.ray.dir_z = ray.d.z;
+
+		rayhit.ray.tnear = EPS;
+		rayhit.ray.tfar = std::numeric_limits<float>::infinity();
+
+		rayhit.ray.flags = 0;
+		rayhit.hit.geomID = RTC_INVALID_GEOMETRY_ID;
+
+		rtcIntersect1(rtcscene, &rtccontext, &rayhit);
+		// Use rayhit.hit.geomid to determine the hit object, primId to determine the face
+		if (rayhit.hit.geomID != RTC_INVALID_GEOMETRY_ID) {
+			auto mesh = meshes[rayhit.hit.geomID];
+			intersection.hitObj = &(mesh->triangles[rayhit.hit.primID]);
+			intersection.material = mesh->materials[mesh->material_idxs[rayhit.hit.primID]];
+
+			intersection.normal = Vec3(rayhit.hit.Ng_x, rayhit.hit.Ng_y, rayhit.hit.Ng_z).normalized();
+		}
+		intersection.t = rayhit.ray.tfar;
+	}
+
+	bool isOccluded(Ray& ray, float distance) {
+		if (distance < 2.0f*EPS) {
+			return false;
+		}
+
+		RTCIntersectContext rtccontext;
+		rtcInitIntersectContext(&rtccontext);
+
+		RTCRay rtcray;
+		rtcray.org_x = ray.o.x;
+		rtcray.org_y = ray.o.y;
+		rtcray.org_z = ray.o.z;
+
+		rtcray.dir_x = ray.d.x;
+		rtcray.dir_y = ray.d.y;
+		rtcray.dir_z = ray.d.z;
+
+		rtcray.tnear = EPS;
+		rtcray.tfar = distance - EPS;
+
+		rtcray.flags = 0;
+
+		rtcOccluded1(rtcscene, &rtccontext, &rtcray);
+
+		return rtcray.tfar == -std::numeric_limits<float>::infinity();
+	}
+
+	float sampleRandomPointOnLight(mt19937& gen, Vec3 &point_ret) {
+		uniform_int_distribution<unsigned> uniformLight(0, lights.size()-1);
+		float pdf = lights[uniformLight(gen)].samplePoint(gen, point_ret);
+		return pdf;
+	}
 };
 
 Scene scene;
 
 uniform_real_distribution<float> pix(-0.5f, 0.5f);
-uniform_real_distribution<float> uniform01(0.0f, 1.0f);
 uniform_real_distribution<float> uniformAngle(0.0f, 2.0f*M_PI);
+
 Obj *light = nullptr;
 Material redMat = { Vec3(0.65f, 0.05f, 0.05f), 0.0f, Surface(diffuse) };
 void buildScene(int i) {
@@ -138,8 +272,12 @@ void buildScene(int i) {
 	Material lightMat = { Vec3(1.0f), 16.0f, Surface(specular) };
 	Material ovenMat = { Vec3(0.5f), 0.5f, Surface(diffuse) };
 
-	scene.meshes.push_back(load_mesh("geometry/teapot.obj"));
-	scene.meshes.front()->material = diffuseMat;
+	scene.addMesh(scene.load_mesh("geometry/CornellBox-Original.obj"));
+	scene.meshes[0]->materials[7].emission = 4.0f;
+	scene.meshes[0]->materials[6] = specularMat;
+
+	//scene.meshes.push_back(load_mesh("geometry/teapot.obj"));
+	//scene.meshes.front()->material = diffuseMat;
 	//switch (i) {
 	//default:
 	//	break;
@@ -195,6 +333,8 @@ void buildScene(int i) {
 			lights.push_back(obj);
 		}
 	}*/
+
+	scene.commit();
 }
 
 // Transform pixel coordinates to perspective rays
@@ -204,8 +344,8 @@ void cameraRay(float px, float py, Ray& ray) {
 	// https://computergraphics.stackexchange.com/questions/8479/how-to-calculate-ray
 	float y = (2.0f * py - HEIGHT) / HEIGHT * tanf(((float) HEIGHT) / WIDTH * FOVX * M_PI / 180.0f / 2.0f);
 	float z = -1.0f;
-	ray.o = Vec3(0.0,0.0f,70.0f);
-	ray.d = Vec3(x,y,z).normalized();
+	ray.o = Vec3(0.0f,1.0f,3.0f);
+	ray.d = Vec3(x,-y,z).normalized();
 
 	//return Ray(Vec3(), Vec3(x, y, z));
 }
@@ -256,7 +396,7 @@ Vec3 henyey_greenstein(Vec3 in, float g, mt19937 &gen) {
 	return v2 * sin_t*cos(phi) + v3 * sin_t*sin(phi) + in * cos_t;
 }
 float henyey_greenstein_p(float cos_t, float g=1.0f) {
-	return 1/4.0f/M_PI*(1.0f-g*g)/(1.0f+g*g+2.0f*g*powf(cos_t,1.5f));
+	return 1.0f/4.0f/M_PI*(1.0f-g*g)/(1.0f+g*g+2.0f*g*powf(cos_t,1.5f));
 }
 
 Vec3 direction(float theta, float phi) {
@@ -272,42 +412,54 @@ Vec3 rayTrace(Ray& ray, mt19937 &gen) {
 	//int a = 0;
 	float mis_brdf_pdf = -1.0f; // Negative when mis was not used
 	while (true) {
-		Intersection intersection = scene.castRay(ray);
+		Intersection intersection;
+		scene.castRay(ray, intersection);
 		
 		//TODO: Weigh this by MIS
 		if (isinf(intersection.t)) {
 			float a = ray.d.dot(Vec3(0.2f, -0.8f, -0.4f).normalized());
-			if (a > 0.999) {
+			/*if (a > 0.999) {
 
 				color = color + attenuation*Vec3(5);
 			} else if (a > 0.96) {
 				color = color + attenuation*Vec3(5)*(a-0.96f)*(a - 0.96f)/ (0.999f - 0.96f) /(0.999f-0.96f);
-			}
-			color = color + attenuation*Vec3(0.5f,0.70f,0.8f);
+			}*/
+			//color = color + attenuation*Vec3(0.5f,0.70f,0.8f);
 			break;
 		}
-
-		//float density = 0.0005f;
 		float density = 0.0f;
 
 		Vec3 hp = intersection.t*ray.d + ray.o;
 
 		Obj *obj = intersection.hitObj;
-		obj->material = redMat;
-		Vec3 n = obj->normal(hp);
-		Vec3 emission = Vec3(obj->material.emission);
+		Vec3 n = intersection.normal;
+		
+		Material material = intersection.material;
+		//obj->material = redMat;
+		// TODO: remove this
+		//obj->material.albedo = n*0.7f + 0.3f;
+		//obj->material.albedo.x = min(abs(obj->material.albedo.x), 1.0f);
+		//obj->material.albedo.y = min(abs(obj->material.albedo.y), 1.0f);
+		//obj->material.albedo.z = min(abs(obj->material.albedo.z), 1.0f);
+
+		Vec3 emission = Vec3(material.emission);
+
 		if (emission.max() > 0.0f) {
+			// Apply MIS
 			if (mis_brdf_pdf > 0.0f) {
-				float solidAngle = abs(-ray.d.dot(obj->normal(hp))) * 100 * 100 / intersection.t / intersection.t;
-				color = color + (obj->material.emission)*attenuation *
-					mis_brdf_pdf * mis_brdf_pdf / (1 / solidAngle / solidAngle + mis_brdf_pdf * mis_brdf_pdf) *
-					exp(-density * intersection.t); // MEDIUM TERM REMOVE LATER
+				float solidAngle = abs(-ray.d.dot(n)) * 100 * 100 / intersection.t / intersection.t;
+				// We have 2 multiplications of mis_brdf_pdf because, we have already divided the attenuation by mis_brdf_pdf
+				color = color + emission*attenuation *
+					mis_brdf_pdf * mis_brdf_pdf / (1 / solidAngle / solidAngle + mis_brdf_pdf * mis_brdf_pdf);
+					//* exp(-density * intersection.t); // MEDIUM TERM REMOVE LATER
 				
 			} else {
-				color = color + emission * attenuation
-					* exp(-density * intersection.t); // MEDIUM TERM REMOVE LATER
+				color = color + emission * attenuation;
+					//* exp(-density * intersection.t); // MEDIUM TERM REMOVE LATER
 			}
 		}
+
+		// Medium intersection
 		//float medium_t = -log(1.0f - uniform01(gen)) / density;
 		float medium_t = INFINITY;
 		if (intersection.t > medium_t) {
@@ -316,14 +468,18 @@ Vec3 rayTrace(Ray& ray, mt19937 &gen) {
 			ray.o = medium_t * ray.d + ray.o;
 
 			// MIS direct light
-			Vec3 sampledLight = light->samplePoint(gen);
+			Vec3 sampledLight;
+			float pdf = light->samplePoint(gen, sampledLight);
 			ray.d = (sampledLight - ray.o).normalized();
-			Intersection v = scene.castRay(ray);
+			Intersection v;
+
+			// TODO change to use occluded check, technically light == v.hitobj is incorrect
+			scene.castRay(ray, v);
 			if (light == v.hitObj) {
 				float pl = 1.0f / 100.0f / 100.0f;
-				float solidAngle = abs(-ray.d.dot(v.hitObj->normal(ray.o + v.t*ray.d))) / pl / v.t / v.t;
+				float solidAngle = abs(-ray.d.dot(v.normal)) / pl / v.t / v.t;
 
-				color = color + light->material.emission * attenuation * obj->material.albedo / M_PI * abs(n.dot(ray.d)) *
+				color = color + v.material.emission * attenuation * material.albedo / M_PI * abs(n.dot(ray.d)) *
 					1 / solidAngle / (1 / solidAngle / solidAngle + abs(ray.d.dot(n)) / M_PI * abs(ray.d.dot(n)) / M_PI) *
 					exp(-density * v.t); // MEDIUM TERM REMOVE LATER
 			}
@@ -340,18 +496,19 @@ Vec3 rayTrace(Ray& ray, mt19937 &gen) {
 		// Some rays get eliminated before they can even do anything,
 		// So either try setting minimum bounces or rearranging some of the code
 		float bounce_probability = min(attenuation.max(), MAX_BOUNCE_PROB);
+		
 		if (uniform01(gen) > bounce_probability) {
 			break;
 		}
 		attenuation = attenuation / bounce_probability;
 
-		if (obj->material.surface == reflective) {
+		if (material.surface == reflective) {
 			float cos_t = ray.d.dot(n);
 
 			ray.d = (ray.d - (n * cos_t * 2.0f));
-			attenuation = attenuation * obj->material.albedo;
+			attenuation = attenuation * material.albedo;
 			mis_brdf_pdf = -1.0f;
-		} else if (obj->material.surface == diffuse) {
+		} else if (material.surface == diffuse) {
 			// TODO actually do this properly
 			float pl = 1.0f / 100.0f / 100.0f;
 			//if (light != obj) {
@@ -361,21 +518,20 @@ Vec3 rayTrace(Ray& ray, mt19937 &gen) {
 			//	if ( light == v.hitObj) {
 			//		float solidAngle = abs(-ray.d.dot(v.hitObj->normal(ray.o + v.t*ray.d)))/pl / v.t / v.t;
 
-			//		color = color + light->material.emission * attenuation * obj->material.albedo / M_PI * abs(n.dot(ray.d)) *
+			//		color = color + light->material.emission * attenuation * material.albedo / M_PI * abs(n.dot(ray.d)) *
 			//			1 / solidAngle /( 1/solidAngle/solidAngle + abs(ray.d.dot(n))/M_PI* abs(ray.d.dot(n)) / M_PI) *
 			//			exp(-density*v.t); // MEDIUM TERM REMOVE LATER
 			//	}
 			//}
 			//color = color + emission * attenuation;
+
+			// TODO: Use onb's instead
 			Matrix3 rotMatrix = rotMatrixVectors(n, Vec3(0.0f, 0.0f, 1.0f));
 			ray.d = rotMatrix * cosineSampleHemisphere(gen);
-			if (ray.d.dot(n) < 0.0) {
-				cout << obj->normal(Vec3()) << endl;
-			}
 			float cos_t = abs(ray.d.dot(n));
-			mis_brdf_pdf = cos_t / M_PI;
-			attenuation = attenuation * obj->material.albedo;/**cos_t/(cos_t/M_PI )*/ // * pi (Surface area) / (pi (lambertian albedo constant))
-		} else if (obj->material.surface == specular) {
+			//mis_brdf_pdf = cos_t / M_PI;
+			attenuation = attenuation * material.albedo;/**cos_t/(cos_t/M_PI )*/ // * pi (Surface area) / (pi (lambertian albedo constant))
+		} else if (material.surface == specular) {
 			// TODO Be able to handle materials with different refractive indexes
 			float r = 1.0f / 1.5f;
 			float cos_t1 = -n.dot(ray.d);
@@ -398,11 +554,11 @@ Vec3 rayTrace(Ray& ray, mt19937 &gen) {
 				// Reflection off the specular surface
 				ray.d = (ray.d + (n * cos_t1 * 2));
 			}
-			attenuation = attenuation * obj->material.albedo;
+			attenuation = attenuation * material.albedo;
 			mis_brdf_pdf = -1.0f;
 		}
 		// Some diagnostic tools
-		//i++;
+		// i++;
 		//c += last == obj && obj == light;
 		//a += last == obj && obj == light;
 		//last = obj;
@@ -415,8 +571,9 @@ Vec3 rayTrace(Ray& ray, mt19937 &gen) {
 
 random_device rd;
 mt19937 gens[THREADS];
-auto t1 = chrono::high_resolution_clock::now();
+
 void render(Img &img) {
+	auto t1 = chrono::high_resolution_clock::now();
 	if (img.sample_count == 0) {
 		#pragma omp parallel for schedule(dynamic) num_threads(THREADS)
 		for (int py = 0; py < HEIGHT; py++) {
@@ -450,9 +607,9 @@ void render(Img &img) {
 		
 	// Performance metrics
 	float seconds = (chrono::duration_cast<std::chrono::microseconds>(chrono::high_resolution_clock::now() - t1).count() / 1000000.0);
-	cout << "Took " + to_string(seconds) + "s\n";
-	/*cout << "Cast " << SAMPLES_PER_PIXEL * WIDTH*HEIGHT << " rays\n";
-	cout << SAMPLES_PER_PIXEL * WIDTH*HEIGHT / seconds << " samples per second \n";*/
+	printf("Took %f seconds\n", seconds);
+	printf("Cast %d rays\n", SAMPLES_PER_PIXEL * WIDTH*HEIGHT);
+	printf("%f samples per second \n", SAMPLES_PER_PIXEL * WIDTH*HEIGHT / seconds);
 }
 
 void toneMap(array<array<Vec3, WIDTH>, HEIGHT> *img) {
@@ -470,22 +627,22 @@ string getDateTime() {
 
 	tm now;
 	localtime_s(&now, &t);
-	string s = to_string(now.tm_year + 1900)
-		+ to_string(now.tm_mon + 1)
-		+ to_string(now.tm_mday)
-		+ to_string(now.tm_hour)
-		+ to_string(now.tm_min)
-		+ to_string(now.tm_sec);
-	return s;
+	char buffer[15];
+	std::strftime(buffer, 32, "%Y%m%d%H%M%S", &now);
+	return string(buffer);
 }
 
 void render_loop(Img &img) {
-	t1 = chrono::high_resolution_clock::now();
-	for (int i = 0; i < THREADS; i++) gens[i] = mt19937(hash<int>{}(i));
+	auto t0 = chrono::high_resolution_clock::now();
+	for (int i = 0; i < THREADS; i++) {
+		gens[i] = mt19937(hash<int>{}(i));
+	}
 	while (true) {
 		render(img);
 		img.sample_count++;
-		cout << "Accumulated " << SAMPLES_PER_PIXEL*img.sample_count << " samples per pixel" << endl;
+
+		float seconds = (chrono::duration_cast<std::chrono::microseconds>(chrono::high_resolution_clock::now() - t0).count() / 1000000.0);
+		printf("Accumulated %d samples per pixel over %f seconds\n\n", SAMPLES_PER_PIXEL*img.sample_count, seconds);
 	}
 }
 
@@ -494,12 +651,13 @@ void process_image(sf::Image &image, array<array<Vec3, WIDTH>, HEIGHT> *img) {
 	// Load image
 	for (int py = 0; py < HEIGHT; py++) {
 		for (int px = 0; px < WIDTH; px++) {
-			image.setPixel(px, py, (*img)[py][px].tosRGB());
+			image.setPixel(px, py, (*img)[py][px].toColor());
 		}
 	}
 }
 
 void gui_thread(Img &img) {
+	
 	// Tone map resulting image
 
 	sf::Image image;
@@ -507,11 +665,14 @@ void gui_thread(Img &img) {
 
 	//process_image(image, img);
 
+	sf::ContextSettings contextSettings;
+	contextSettings.sRgbCapable = true;
+
 	// Init texture
-	sf::RenderWindow window(sf::VideoMode(WIDTH, HEIGHT), "Ray tracer");
+	sf::RenderWindow window(sf::VideoMode(WIDTH, HEIGHT), "Ray tracer", sf::Style::Default, contextSettings);
 	sf::Texture texture;
 	sf::Sprite sprite;
-
+	texture.setSrgb(false);
 
 	ofstream ofile;
 	while (window.isOpen()) {
@@ -525,9 +686,8 @@ void gui_thread(Img &img) {
 			case sf::Event::KeyPressed:
 				switch (event.key.code) {
 				case sf::Keyboard::S:
-					cout << "Saving render" << endl;
-
-					image.saveToFile(".\\renders\\render" + getDateTime() + ".png");
+					printf("Saving render...\n");
+					image.saveToFile(".\\renders\\render" + getDateTime() + ".png"); // TODO save the file as srgb
 					ofile.open(".\\renders\\renderData" + getDateTime() + ".txt");
 					for (int py = 0; py < HEIGHT; py++) {
 						for (int px = 0; px < WIDTH; px++) {
@@ -538,7 +698,7 @@ void gui_thread(Img &img) {
 					}
 					ofile.close();
 
-					cout << "Render saved" << endl;
+					printf("Render saved\n");
 					break;
 				case sf::Keyboard::Escape:
 					window.close();
@@ -555,7 +715,6 @@ void gui_thread(Img &img) {
 		window.draw(sprite);
 		window.display();
 
-		// TODO use hardware sRGB instead
 		process_image(image, img.pixels);
 		texture.loadFromImage(image);
 		sprite.setTexture(texture);
@@ -564,17 +723,14 @@ void gui_thread(Img &img) {
 
 int main() {
 	if (!std::numeric_limits<float>::is_iec559) {
-		cout << "Machine architecture must implement IEEE 754.\n";
+		printf("Machine architecture must implement IEEE 754.\n");
 		return 0;
 	}
+	
 	auto t1 = chrono::high_resolution_clock::now();
-	float seconds = (chrono::duration_cast<std::chrono::microseconds>(chrono::high_resolution_clock::now() - t1).count() / 1000000.0);
-	cout << "Took " + to_string(seconds) + "s\n";
-	// Create scene
-	//cout << "Choose scene (0-" << MAX_SCENES << "): ";
-	//int sceneIndex = 0;
-	//cin >> sceneIndex;
 	buildScene(ACTIVE_SCENE);
+	float seconds = (chrono::duration_cast<std::chrono::microseconds>(chrono::high_resolution_clock::now() - t1).count() / 1000000.0);
+	printf("Scene built in %f seconds\n", seconds);
 
 	Img img = Img();
 	img.clear();

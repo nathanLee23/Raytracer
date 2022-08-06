@@ -15,6 +15,8 @@
 #include "Material.h"
 #include "globals.h"
 
+#include "Sampler.h"
+
 
 float sgn(float x) {
 	return (float)((x > 0) - (x < 0));
@@ -24,74 +26,72 @@ class Obj {
 public:
 	// Returns the t for which r.o+t*r.d intersects the object
 	// Returns a negative number if no intersection exists
-	virtual float intersect(Ray& ray) = 0;
+	virtual float intersect(Ray& ray) = 0 ;
 
-	virtual float samplePoint(std::mt19937& gen, Vec3& point_ret) = 0;
+	virtual float samplePoint(Pcg& gen, Vec3& point_ret) const = 0;
 };
 //
-//std::uniform_real_distribution<float> eta(0, 1);
-//std::uniform_int_distribution<int> side(0, 5);
-class Box : public Obj {
-public:
-	Vec3 min;
-	Vec3 max;
+// 
+//class Box : public Obj {
+//public:
+//	Vec3 min;
+//	Vec3 max;
+//
+//	Box(Vec3 min, Vec3 max) : min(min), max(max) {
+//	}
+//
+//	float intersect(Ray& ray) {
+//		float t1 = (min.x - ray.o.x) / ray.d.x;
+//		float t2 = (max.x - ray.o.x) / ray.d.x;
+//
+//		float tmin = std::min(t1, t2);
+//		float tmax = std::max(t1, t2);
+//
+//		t1 = (min.y - ray.o.y) / ray.d.y;
+//		t2 = (max.y - ray.o.y) / ray.d.y;
+//
+//		tmin = std::max(tmin, std::min(t1, t2));
+//		tmax = std::min(tmax, std::max(t1, t2));
+//		t1 = (min.z - ray.o.z) / ray.d.z;
+//		t2 = (max.z - ray.o.z) / ray.d.z;
+//
+//		tmin = std::max(tmin, std::min(t1, t2));
+//		tmax = std::min(tmax, std::max(t1, t2));
+//		//for (int i = 1; i < 3; i++) {
+//		//	t1 = (min[i] - ray.o[i])/ray.d[i];
+//		//	t2 = (max[i] - ray.o[i])/ray.d[i];
+//
+//		//	tmin = std::max(tmin, std::min(t1, t2));
+//		//	tmax = std::min(tmax, std::max(t1, t2));
+//		//}
+//		return tmax >= tmin ? (tmin > EPS ? tmin : tmax) : INFINITY;
+//	}
+//
+//	Vec3 normal(Vec3 p) {
+//		Vec3 c = (max + min) / 2.0f;
+//		Vec3 cToP = p - c;
+//
+//		// Can optimize this further
+//		int argMax = 0;
+//		for (int i = 1; i < 3; i++) {
+//			if (abs(cToP[i])*(max[argMax] - min[argMax]) > abs(cToP[argMax]) * (max[i] - min[i])) {
+//				argMax = i;
+//			}
+//		}
+//
+//		return Vec3(
+//			(argMax == 0) * sgn(cToP.x),
+//			(argMax == 1) * sgn(cToP.y),
+//			(argMax == 2) * sgn(cToP.z)
+//		);
+//	}
+//
+//
+//	float samplePoint(Pcg& gen, Vec3& point_ret) {
+//		return 0.0f;
+//	}
+//};
 
-	Box(Vec3 min, Vec3 max) : min(min), max(max) {
-	}
-
-	float intersect(Ray& ray) {
-		float t1 = (min.x - ray.o.x) / ray.d.x;
-		float t2 = (max.x - ray.o.x) / ray.d.x;
-
-		float tmin = std::min(t1, t2);
-		float tmax = std::max(t1, t2);
-
-		t1 = (min.y - ray.o.y) / ray.d.y;
-		t2 = (max.y - ray.o.y) / ray.d.y;
-
-		tmin = std::max(tmin, std::min(t1, t2));
-		tmax = std::min(tmax, std::max(t1, t2));
-		t1 = (min.z - ray.o.z) / ray.d.z;
-		t2 = (max.z - ray.o.z) / ray.d.z;
-
-		tmin = std::max(tmin, std::min(t1, t2));
-		tmax = std::min(tmax, std::max(t1, t2));
-		//for (int i = 1; i < 3; i++) {
-		//	t1 = (min[i] - ray.o[i])/ray.d[i];
-		//	t2 = (max[i] - ray.o[i])/ray.d[i];
-
-		//	tmin = std::max(tmin, std::min(t1, t2));
-		//	tmax = std::min(tmax, std::max(t1, t2));
-		//}
-		return tmax >= tmin ? (tmin > EPS ? tmin : tmax) : INFINITY;
-	}
-
-	Vec3 normal(Vec3 p) {
-		Vec3 c = (max + min) / 2.0f;
-		Vec3 cToP = p - c;
-
-		// Can optimize this further
-		int argMax = 0;
-		for (int i = 1; i < 3; i++) {
-			if (abs(cToP[i])*(max[argMax] - min[argMax]) > abs(cToP[argMax]) * (max[i] - min[i])) {
-				argMax = i;
-			}
-		}
-
-		return Vec3(
-			(argMax == 0) * sgn(cToP.x),
-			(argMax == 1) * sgn(cToP.y),
-			(argMax == 2) * sgn(cToP.z)
-		);
-	}
-
-
-	float samplePoint(std::mt19937& gen, Vec3& point_ret) {
-		return 0.0f;
-	}
-};
-
-std::uniform_real_distribution<float> uniform01(0.0f, 1.0f);
 
 class Triangle : public Obj {
 public:
@@ -101,6 +101,8 @@ public:
 	Vec3 n;
 
 	float rcp_area;
+
+	Material material;
 
 	Triangle(Vec3 a, Vec3 b, Vec3 c) : a(a), b(b), c(c), n((b-a).cross(c-b).normalized()), rcp_area(2.0f / (b - a).cross(c - b).norm()) {
 	}
@@ -122,20 +124,20 @@ public:
 		return n;
 	}
 
-	float samplePoint(std::mt19937& gen, Vec3& point_ret) {
-		float u[2] = { uniform01(gen), uniform01(gen) };
+	float samplePoint(Pcg& gen, Vec3& point_ret) const {
+		float u[2] = { gen.Uniform(), gen.Uniform() };
 
 		float su0 = std::sqrt(u[0]);
-		float b0 = 1 - su0;
+		float b0 = 1.0f - su0;
 		float b1 = u[1] * su0;
-		Vec3 barycentric = Vec3(b0, b1, 1.f - b0 - b1);
+		point_ret = b0 * a + b1 * b + (1.0f - b0 - b1) * c;
 
 		return rcp_area;
 	}
 
-	float lowDiscrepancySamplePoint(std::mt19937& gen, Vec3& point_ret) {
+	float lowDiscrepancySamplePoint(Pcg& gen, Vec3& point_ret) {
 		// https://pharr.org/matt/blog/2019/03/13/triangle-sampling-1.5
-		uint32_t uf = uniform01(gen) * (1ull << 32);  // Fixed point
+		uint32_t uf = gen.Uniform() * (1ull << 32);  // Fixed point
 		float cx = 0.0f;
 		float cy = 0.0f;
 		float w = 0.5f;
@@ -152,9 +154,7 @@ public:
 		}
 
 		float b0 = cx + w / 3.0f, b1 = cy + w / 3.0f;
-		Vec3 barycentric = Vec3(b0, b1, 1 - b0 - b1 );
-
-		//TODO transform barycentric points to world coordinates
+		point_ret = b0*a + b1*b +  (1 - b0 - b1)*c;
 
 		return rcp_area;
 	}
@@ -194,14 +194,14 @@ public:
 		return min_t;
 	}
 
-	float samplePoint(std::mt19937& gen, Vec3& point_ret) {
+	float samplePoint(Pcg& gen, Vec3& point_ret) const {
 		return 0.0f;
 	}
 };
 
 class EmbreeMesh : public Obj {
 public:
-	//TODO replace with span
+	//TODO replace with spans
 	Vec3* vertices;
 	unsigned* triangles;
 	RTCGeometry rtcmesh;
@@ -215,7 +215,7 @@ public:
 		rtcmesh = rtcNewGeometry(rtcdevice, RTC_GEOMETRY_TYPE_TRIANGLE);
 		vertices = (Vec3*)rtcSetNewGeometryBuffer(rtcmesh, RTC_BUFFER_TYPE_VERTEX, 0, RTC_FORMAT_FLOAT3, sizeof(Vec3), 3 * mesh->triangles.size());
 		triangles = (unsigned*)rtcSetNewGeometryBuffer(rtcmesh, RTC_BUFFER_TYPE_INDEX, 0, RTC_FORMAT_UINT3, 3 * sizeof(unsigned), mesh->triangles.size());
-		for (size_t i = 0; i < mesh->triangles.size(); i++) {
+		for (unsigned i = 0; i < mesh->triangles.size(); i++) {
 			vertices[3 * i] = mesh->triangles[i].a;
 			vertices[3 * i + 1] = mesh->triangles[i].b;
 			vertices[3 * i + 2] = mesh->triangles[i].c;
@@ -223,7 +223,9 @@ public:
 			triangles[3 * i] = 3 * i;
 			triangles[3 * i + 1] = 3 * i + 1;
 			triangles[3 * i + 2] = 3 * i + 2;
+
 		}
+		material_idxs = mesh->material_idxs;
 
 		rtcCommitGeometry(rtcmesh);
 		unsigned int geomID = rtcAttachGeometry(rtcscene, rtcmesh);
@@ -239,7 +241,35 @@ public:
 	Vec3 normal(Vec3 p) {
 		return Vec3();
 	}
-	float samplePoint(std::mt19937& gen, Vec3& point_ret) {
+	float samplePoint(Pcg& gen, Vec3& point_ret) const {
+		return 0.0f;
+	}
+};
+
+class Sphere : public Obj {
+public:
+	Vec3 c;
+	float r;
+	Material material;
+
+	Sphere(Vec3 c, float r) : c(c), r(r) {
+	}
+	float intersect(Ray& ray) {
+		float B = 2.0f * ray.d.dot(ray.o - c);
+		float C = (ray.o - c).sqrNorm() - r * r;
+
+		float sqrDiscr = B * B - 4.0f * C;
+		if (sqrDiscr < 0.0f) {
+			return INFINITY;
+		}
+		float discr = std::sqrt(sqrDiscr);
+		float t1 = (-B - discr) / 2.0f;
+		return t1 > EPS ? t1 : (-B + discr) / 2.0f;
+	}
+	Vec3 normal(Vec3 p) {
+		return (p - c) / r;
+	}
+	float samplePoint(Pcg& gen, Vec3& point_ret) const {
 		return 0.0f;
 	}
 };

@@ -1,6 +1,6 @@
 # Raytracer
 
-A WIP toy raytracer for learning.
+A WIP toy path tracer for learning.
 
 ## Samples
 Diffuse material:  
@@ -30,11 +30,6 @@ Multiple importance sampling in a slightly more complicated scene:
 ### Bugs
 - Specular refractive index fix
 
-### Raycasting improvements
-- ~~Implement AABB~~
-- BVH acceleration (see PBRT book)
-- Optimization for shadow rays (early termination by stopping on any found intersection between 2 points)
-
 ### Variance reduction
 - ~~Russian roulette~~
   - ~~Brightness based russian roulette~~
@@ -48,6 +43,3 @@ Multiple importance sampling in a slightly more complicated scene:
 
 ### Misc. Optimization
 - Test Vec4
-
-## Dependancies
-You'll have to install Intel Embree to be able to compile and run this at the moment

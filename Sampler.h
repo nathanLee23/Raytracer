@@ -6,11 +6,6 @@
 #include <random>
 
 #define ONE_MINUS_EPSILON float(0x1.fffffep-1)
-//class Sampler {
-//
-//	float unif01();
-//};
-
 
 // Better implementation here https://github.com/wjakob/pcg32
 class Pcg {

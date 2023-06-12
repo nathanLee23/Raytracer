@@ -31,15 +31,14 @@ Vec3 uniformSampleHemisphere(Pcg& gen) {
 	return Vec3(cos(theta) * r, sin(theta) * r, z);
 }
 
-// Creates an orthonormal basis
-void onb(Vec3 v1, Vec3& v2, Vec3& v3) {
-	if (abs(v1.x) > abs(v1.y)) {
-		v2 = Vec3(-v1.z, 0.0f, v1.x) / sqrt(v1.z * v1.z + v1.x * v1.x);
-	}
-	else {
-		v2 = Vec3(0.0f, v1.z, -v1.y) / sqrt(v1.z * v1.z + v1.y * v1.y);
-	}
-	v3 = v1.cross(v2);
+// Creates an orthonormal basis, assumes v1 has unit norm
+// From T. Duf et al. Building an Orthonormal Basis, Revisited. Journal of Computer Graphics Techniques
+void onb(const Vec3 v1, Vec3& v2, Vec3& v3) {
+	float sign = copysignf(1.0f, v1.z);
+	const float a = -1.0f / (sign + v1.z);
+	const float b = v1.x * v1.y * a;
+	v2 = Vec3(1.0f + sign * v1.x * v1.x * a, sign * b, -sign * v1.x);
+	v3 = Vec3(b, sign + v1.y * v1.y * a, -v1.y);
 }
 
 // cos_t is the dot product of the normal and the incident vectors
@@ -205,7 +204,7 @@ Vec3 pathTrace(const Scene& scene, Ray& ray, Pcg& gen) {
 			break;
 		}
 		case diffuse: {
-
+			bool yes = false;
 			// NEE
 			if (scene.lights.size() != 0 && material.emission < NEE_EMISSION_THRESHOLD) {
 				Triangle const* sampledLight;
@@ -214,14 +213,17 @@ Vec3 pathTrace(const Scene& scene, Ray& ray, Pcg& gen) {
 
 				float distance = (sampledPoint - ray.o).norm();
 				ray.d = (sampledPoint - ray.o) / distance;
+				yes = true;
 				if (!scene.isOccluded(ray, distance)) {
-					float solidAngle = abs(-ray.d.dot(sampledLight->n)) / nee_pdf / distance / distance;
+					float solidAngle = abs(-ray.d.dot(sampledLight->n)) / nee_pdf / distance / distance; // rcp of the pdf
 					if (solidAngle != 0.0f) {
 						// TODO Can avoid 0.0f check by multiplying denom & numerator by solidAngle
-
+						//std::cout << 1.0f / solidAngle / solidAngle / (1.0f / solidAngle / solidAngle + abs(ray.d.dot(n)) / M_PI * abs(ray.d.dot(n)) / M_PI) << '\n';
 						color += sampledLight->material.emission * attenuation * material.albedo * abs(n.dot(ray.d)) / M_PI *
 							1.0f / solidAngle / (1.0f / solidAngle / solidAngle + abs(ray.d.dot(n)) / M_PI * abs(ray.d.dot(n)) / M_PI);
+						// balance heuristic with b = 2
 						//exp(-density*distance); // MEDIUM TERM REMOVE LATER
+
 					}
 				}
 			}
@@ -235,19 +237,20 @@ Vec3 pathTrace(const Scene& scene, Ray& ray, Pcg& gen) {
 			//END NEE
 
 
-			// TODO: Use onb's instead
+			// TODO: Use onb instead
 			Matrix3 rotMatrix = rotMatrixVectors(n, Vec3(0.0f, 0.0f, 1.0f));
 			ray.d = rotMatrix * cosineSampleHemisphere(gen);
 			float cos_t = std::max(ray.d.dot(n), 0.0f);
-			mis_brdf_pdf = cos_t / M_PI;
+			if (yes) mis_brdf_pdf = cos_t / M_PI; else mis_brdf_pdf = -1.0f;
 			attenuation = attenuation * material.albedo;/**cos_t/(cos_t/M_PI )*/ // * pi (Surface area) / (pi (lambertian albedo constant))
 			break;
 		}
 		case specular: {
 			// TODO Be able to handle materials with different refractive indexes
-			float ior = 1.0f / 1.5f;
+			float ior = 1.0f / 2.0f;
 			float cos_t1 = -n.dot(ray.d);
-			if (cos_t1 < 0.0f) {
+			bool from_outside = cos_t1 > 0.0f;
+			if (!from_outside) {
 				// We're inside the specular object
 				cos_t1 *= -1;
 				ior = 1.0f / ior;
@@ -258,11 +261,12 @@ Vec3 pathTrace(const Scene& scene, Ray& ray, Pcg& gen) {
 			float cos_t2_sqr = 1.0f - ior * ior * (1.0f - cos_t1 * cos_t1);
 
 			//TODO: See how much slower computing the real fresnel reflectance is. (will be twice as likely to call sqrt() than usual, but will be more accurate)
-			if (cos_t2_sqr > 0.0f &&
-				gen.Uniform() > (/*(ior > 1.0f) ? schlickApprox(ior, cos_t1) :*/ schlickApprox(ior, sqrt(cos_t2_sqr)))) {
+			if (cos_t2_sqr >= 0.0f &&
+				gen.Uniform() > (/*(ior > 1.0f) ? schlickApprox(ior, cos_t1) :*/ schlickApprox(ior, from_outside ? cos_t1 : sqrt(cos_t2_sqr)))) {
 				// Refraction through the specular surface
 				float cos_t2 = sqrt(cos_t2_sqr);
 				ray.d = ior * ray.d + (ior * cos_t1 - cos_t2) * n;
+				ray.d /= ray.d.norm();
 			}
 			else {
 				// Reflection off the specular surface

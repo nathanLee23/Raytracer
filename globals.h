@@ -4,9 +4,9 @@
 #define WIDTH 800
 #define HEIGHT 800
 
-// How much emission a material should have to be sampled by NEE
+// Minimum emission for a material to be sampled by NEE
 #define NEE_EMISSION_THRESHOLD 0.05f
 
-//#define SPHERES
+#define SPHERES
 
 //#define RT_DEBUG

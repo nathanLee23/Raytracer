@@ -35,7 +35,7 @@ Vec3 uniformSampleUnitDisk(Pcg& gen) {
 class ThinLensCamera {
 public:
 	float focal_length = 2.4f;
-	float lens_radius = 0.05f;
+	float lens_radius = 0.09f;
 	float fov = 60.0f;
 
 	ThinLensCamera() {
@@ -65,8 +65,7 @@ public:
 	float stretch_y;
 	OrthogonalCamera(float stretch_x, float stretch_y) : stretch_x(stretch_x), stretch_y(stretch_y) {
 	}
-	OrthogonalCamera(float stretch) {
-		OrthogonalCamera(stretch, stretch);
+	OrthogonalCamera(float stretch) : OrthogonalCamera(stretch, stretch) {
 	}
 
 	// Transform pixel coordinates to perspective rays

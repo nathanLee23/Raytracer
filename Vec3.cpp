@@ -72,6 +72,9 @@ Vec3 operator*(float b, const Vec3& a) {
 Vec3 operator*(const Vec3& a, const Vec3& b) {
 	return Vec3(a.x*b.x, a.y*b.y, a.z*b.z);
 }
+Vec3 operator/(const Vec3& a, const Vec3& b) {
+	return Vec3(a.x / b.x, a.y / b.y, a.z / b.z);
+}
 Vec3 operator/(const Vec3& a, const float b) {
 	return a * (1.0f / b);
 }
